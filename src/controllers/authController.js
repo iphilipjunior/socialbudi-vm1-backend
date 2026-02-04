@@ -1,0 +1,451 @@
+/**
+ * Authentication Controller
+ *
+ * Handles all authentication business logic including user signup,
+ * login with state-based redirects, and account activation.
+ *
+ * @module controllers/authController
+ */
+
+const crypto = require('crypto');
+const { hashPassword, comparePassword } = require('../utils/passwordUtils');
+const { generateToken } = require('../services/jwtService');
+const supabase = require('../config/supabase');
+const logger = require('../utils/logger');
+
+/**
+ * Generates a secure API key using crypto.randomBytes
+ * @returns {string} 64-character hex string
+ */
+const generateApiKey = () => {
+  return crypto.randomBytes(32).toString('hex');
+};
+
+/**
+ * Signup - Create a new user account
+ *
+ * Creates a new user with pending payment status.
+ * Password is hashed before storage.
+ *
+ * @param {Object} req - Express request object
+ * @param {Object} req.body - Request body
+ * @param {string} req.body.name - User's full name
+ * @param {string} req.body.email - User's email address
+ * @param {string} req.body.password - User's password (plain text)
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next middleware function
+ * @returns {Object} JSON response with success status
+ */
+const signup = async (req, res, next) => {
+  try {
+    const { name, email, password } = req.body;
+
+    // Validate required fields
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'Name, email, and password are required'
+      });
+    }
+
+    // Normalize email to lowercase
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Check if email already exists
+    const { data: existingUser, error: lookupError } = await supabase
+      .from('users')
+      .select('user_id')
+      .eq('email', normalizedEmail)
+      .single();
+
+    if (lookupError && lookupError.code !== 'PGRST116') {
+      // PGRST116 = no rows returned, which is expected for new users
+      logger.error('Error checking for existing user:', { error: lookupError });
+      throw new Error('Database error during signup');
+    }
+
+    if (existingUser) {
+      logger.warn('Signup attempt with existing email', { email: normalizedEmail });
+      return res.status(409).json({
+        success: false,
+        error: 'Email already registered',
+        message: 'An account with this email already exists'
+      });
+    }
+
+    // Hash the password
+    const hashedPassword = await hashPassword(password);
+
+    // Insert new user
+    const { data: newUser, error: insertError } = await supabase
+      .from('users')
+      .insert({
+        name: name.trim(),
+        email: normalizedEmail,
+        password_hash: hashedPassword,
+        payment_status: 'pending',
+        activated: false,
+        created_at: new Date().toISOString()
+      })
+      .select('user_id, name, email, created_at')
+      .single();
+
+    if (insertError) {
+      logger.error('Error inserting new user:', { error: insertError });
+      throw new Error('Failed to create user account');
+    }
+
+    // Log signup event to system_logs
+    await supabase.from('system_logs').insert({
+      log_level: 'info',
+      service: 'auth',
+      action: 'user_signup',
+      message: `New user signed up: ${normalizedEmail}`
+    });
+
+    logger.info('User signup successful', {
+      user_id: newUser.user_id,
+      email: normalizedEmail
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Account created successfully. Please complete payment to activate.',
+      next_action: 'open_payment_modal',
+      user_id: newUser.user_id
+    });
+  } catch (err) {
+    logger.error(`Error in signup: ${err.message}`, {
+      stack: err.stack
+    });
+    next(err);
+  }
+};
+
+/**
+ * Login - Authenticate user and return appropriate redirect
+ *
+ * Checks user credentials and returns different responses based on account state:
+ * - pending payment → redirect to /waiting-payment
+ * - paid but not activated → redirect to /activate
+ * - fully activated → return JWT token and redirect to /dashboard
+ *
+ * @param {Object} req - Express request object
+ * @param {Object} req.body - Request body
+ * @param {string} req.body.email - User's email address
+ * @param {string} req.body.password - User's password (plain text)
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next middleware function
+ * @returns {Object} JSON response with redirect path and optionally token
+ */
+const login = async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+
+    // Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'Email and password are required'
+      });
+    }
+
+    // Normalize email to lowercase
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Find user by email
+    const { data: user, error: lookupError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', normalizedEmail)
+      .single();
+
+    if (lookupError || !user) {
+      // Don't reveal whether email exists or not
+      logger.warn('Login attempt with unknown email', { email: normalizedEmail });
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid credentials',
+        message: 'The email or password you entered is incorrect'
+      });
+    }
+
+    // Compare password
+    const isPasswordValid = await comparePassword(password, user.password_hash);
+
+    if (!isPasswordValid) {
+      // Don't reveal that it's specifically the password that's wrong
+      logger.warn('Login attempt with invalid password', {
+        user_id: user.user_id,
+        email: normalizedEmail
+      });
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid credentials',
+        message: 'The email or password you entered is incorrect'
+      });
+    }
+
+    // Check account state and return appropriate response
+
+    // State 1: Waiting for payment
+    if (user.payment_status === 'pending') {
+      logger.info('Login successful - payment pending', {
+        user_id: user.user_id,
+        email: normalizedEmail
+      });
+      return res.status(200).json({
+        success: true,
+        message: 'Please complete payment to activate your account',
+        redirect: '/waiting-payment',
+        user_id: user.user_id
+      });
+    }
+
+    // State 2: Paid but not activated
+    if (user.payment_status === 'paid' && user.activated === false) {
+      logger.info('Login successful - awaiting activation', {
+        user_id: user.user_id,
+        email: normalizedEmail
+      });
+      return res.status(200).json({
+        success: true,
+        message: 'Payment received. Please activate your account.',
+        redirect: '/activate',
+        user_id: user.user_id
+      });
+    }
+
+    // State 3: Fully activated - generate JWT and return dashboard redirect
+    if (user.activated === true) {
+      const token = generateToken({
+        user_id: user.user_id,
+        email: user.email,
+        role: 'user'
+      });
+
+      // Update last_login timestamp
+      await supabase
+        .from('users')
+        .update({ last_login: new Date().toISOString() })
+        .eq('user_id', user.user_id);
+
+      logger.info('Login successful - fully activated', {
+        user_id: user.user_id,
+        email: normalizedEmail
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Login successful',
+        redirect: '/dashboard',
+        token: token,
+        user: {
+          user_id: user.user_id,
+          name: user.name,
+          email: user.email,
+          role: 'user'
+        }
+      });
+    }
+
+    // Fallback for unexpected state
+    logger.error('Unexpected account state during login', {
+      user_id: user.user_id,
+      payment_status: user.payment_status,
+      activated: user.activated
+    });
+
+    return res.status(500).json({
+      success: false,
+      error: 'Account state error',
+      message: 'Please contact support'
+    });
+  } catch (err) {
+    logger.error(`Error in login: ${err.message}`, {
+      stack: err.stack
+    });
+    next(err);
+  }
+};
+
+/**
+ * Activate - Verify payment ID and activate user account
+ *
+ * Validates payment ID, activates the account, and generates 5 API keys
+ * for different services (linkedin, ytdlp, instagram, enrichment, all).
+ *
+ * @param {Object} req - Express request object
+ * @param {Object} req.body - Request body
+ * @param {string} req.body.email - User's email address
+ * @param {string} req.body.payment_id - Payment ID from payment provider
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next middleware function
+ * @returns {Object} JSON response with JWT token and API keys
+ */
+const activate = async (req, res, next) => {
+  try {
+    const { email, payment_id } = req.body;
+
+    // Validate required fields
+    if (!email || !payment_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'Email and payment_id are required'
+      });
+    }
+
+    // Normalize email to lowercase
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Validate Payment ID format (must start with PS_ and be at least 5 chars)
+    if (!payment_id.startsWith('PS_') || payment_id.length < 5) {
+      logger.warn('Invalid payment ID format', {
+        email: normalizedEmail,
+        payment_id_prefix: payment_id.substring(0, 3)
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid payment ID format',
+        message: 'Payment ID must start with PS_ and be at least 5 characters'
+      });
+    }
+
+    // Find user by email
+    const { data: user, error: lookupError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', normalizedEmail)
+      .single();
+
+    if (lookupError || !user) {
+      logger.warn('Activation attempt for unknown user', { email: normalizedEmail });
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+        message: 'No account found with this email'
+      });
+    }
+
+    // Check if already activated
+    if (user.activated === true) {
+      logger.warn('Activation attempt for already activated account', {
+        user_id: user.user_id,
+        email: normalizedEmail
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'Account already activated',
+        message: 'This account is already activated'
+      });
+    }
+
+    // Check for duplicate Payment ID
+    const { data: existingPayment, error: paymentLookupError } = await supabase
+      .from('users')
+      .select('user_id')
+      .eq('payment_id', payment_id)
+      .single();
+
+    if (paymentLookupError && paymentLookupError.code !== 'PGRST116') {
+      logger.error('Error checking for duplicate payment ID:', { error: paymentLookupError });
+    }
+
+    if (existingPayment) {
+      logger.warn('Activation attempt with duplicate payment ID', {
+        email: normalizedEmail,
+        payment_id: payment_id
+      });
+      return res.status(409).json({
+        success: false,
+        error: 'Payment ID already used',
+        message: 'This payment ID has already been used for another account'
+      });
+    }
+
+    // Generate 5 API keys for different services
+    const apiKeys = {
+      linkedin: generateApiKey(),
+      ytdlp: generateApiKey(),
+      instagram: generateApiKey(),
+      enrichment: generateApiKey(),
+      all: generateApiKey()
+    };
+
+    // Create API key records for insertion
+    const apiKeyRecords = Object.entries(apiKeys).map(([service, key]) => ({
+      user_id: user.user_id,
+      service_name: service,
+      api_key: key,
+      created_at: new Date().toISOString(),
+      is_active: true
+    }));
+
+    // Insert API keys
+    const { error: apiKeyInsertError } = await supabase
+      .from('api_keys')
+      .insert(apiKeyRecords);
+
+    if (apiKeyInsertError) {
+      logger.error('Error inserting API keys:', { error: apiKeyInsertError });
+      throw new Error('Failed to generate API keys');
+    }
+
+    // Update user record to activated
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        payment_status: 'paid',
+        payment_id: payment_id,
+        activated: true,
+        activated_at: new Date().toISOString()
+      })
+      .eq('user_id', user.user_id);
+
+    if (updateError) {
+      logger.error('Error updating user to activated:', { error: updateError });
+      throw new Error('Failed to activate account');
+    }
+
+    // Generate JWT token
+    const token = generateToken({
+      user_id: user.user_id,
+      email: user.email,
+      role: 'user'
+    });
+
+    // Log activation event to system_logs
+    await supabase.from('system_logs').insert({
+      log_level: 'info',
+      service: 'auth',
+      action: 'account_activation',
+      message: `Account activated: ${normalizedEmail}`
+    });
+
+    logger.info('Account activation successful', {
+      user_id: user.user_id,
+      email: normalizedEmail
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Account activated successfully',
+      token: token,
+      api_keys: apiKeys
+    });
+  } catch (err) {
+    logger.error(`Error in activate: ${err.message}`, {
+      stack: err.stack
+    });
+    next(err);
+  }
+};
+
+module.exports = {
+  signup,
+  login,
+  activate
+};
