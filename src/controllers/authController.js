@@ -40,15 +40,6 @@ const signup = async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
 
-    // Validate required fields
-    if (!name || !email || !password) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields',
-        message: 'Name, email, and password are required'
-      });
-    }
-
     // Normalize email to lowercase
     const normalizedEmail = email.toLowerCase().trim();
 
@@ -142,15 +133,6 @@ const signup = async (req, res, next) => {
 const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-
-    // Validate required fields
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields',
-        message: 'Email and password are required'
-      });
-    }
 
     // Normalize email to lowercase
     const normalizedEmail = email.toLowerCase().trim();
@@ -289,30 +271,8 @@ const activate = async (req, res, next) => {
   try {
     const { email, payment_id } = req.body;
 
-    // Validate required fields
-    if (!email || !payment_id) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields',
-        message: 'Email and payment_id are required'
-      });
-    }
-
     // Normalize email to lowercase
     const normalizedEmail = email.toLowerCase().trim();
-
-    // Validate Payment ID format (must start with PS_ and be at least 5 chars)
-    if (!payment_id.startsWith('PS_') || payment_id.length < 5) {
-      logger.warn('Invalid payment ID format', {
-        email: normalizedEmail,
-        payment_id_prefix: payment_id.substring(0, 3)
-      });
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid payment ID format',
-        message: 'Payment ID must start with PS_ and be at least 5 characters'
-      });
-    }
 
     // Find user by email
     const { data: user, error: lookupError } = await supabase
