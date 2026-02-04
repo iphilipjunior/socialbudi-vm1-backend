@@ -4,6 +4,7 @@ const cors = require('cors');
 const logger = require('./utils/logger');
 const errorHandler = require('./middleware/errorHandler');
 const healthRouter = require('./routes/health');
+const authRoutes = require('./routes/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,6 +30,7 @@ app.use((req, res, next) => {
 
 // ─── ROUTES ──────────────────────────────────────────
 app.use('/health', healthRouter);
+app.use('/api/auth', authRoutes);
 
 // ─── 404 HANDLER ─────────────────────────────────────
 app.use((req, res) => {
