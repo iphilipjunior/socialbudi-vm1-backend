@@ -13,3 +13,6 @@ logs/
 .DS_Store
 Thumbs.db
 .env.bak
+
+# Test coverage
+coverage/
