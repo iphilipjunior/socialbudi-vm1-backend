@@ -6,7 +6,7 @@ set -e
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Configuration
-APP_NAME="socialbudi-vm1"
+APP_NAME="socialbudi-backend"
 APP_DIR="/var/www/socialbudi-backend"
 BRANCH="main"
 
