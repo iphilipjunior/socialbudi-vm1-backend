@@ -71,22 +71,13 @@ const loginRateLimiter = rateLimit({
 
 /**
  * Rate limiter for activation endpoint
- * Limits to 20 activation attempts per email address per hour
- *
+ * Limits to 20 activation attempts per hour per IP address
+ * 
  * Purpose: Prevent Payment ID guessing attacks
- * Note: Uses email as key instead of IP since user might switch networks
  */
 const activationRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 20,
-  // Use email as the key instead of IP for more accurate limiting
-  keyGenerator: (req, res) => {
-    // Use email if available, otherwise fall back to IP
-    // This will be handled automatically by express-rate-limit
-    return req.body?.email;
-  },
-  // Skip rate limiting if no email provided (let validation catch it)
-  skip: (req) => !req.body?.email,
   message: {
     success: false,
     error: 'Too many activation attempts',
