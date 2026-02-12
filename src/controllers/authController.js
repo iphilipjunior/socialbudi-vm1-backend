@@ -9,7 +9,7 @@
 
 const crypto = require('crypto');
 const { hashPassword, comparePassword } = require('../utils/passwordUtils');
-const { generateToken } = require('../services/jwtService');
+const { generateToken, decodeToken } = require('../services/jwtService');
 const supabase = require('../config/supabase');
 const logger = require('../utils/logger');
 
@@ -404,8 +404,163 @@ const activate = async (req, res, next) => {
   }
 };
 
+/**
+ * Verify Token - Check if JWT token is valid
+ *
+ * Uses authMiddleware to verify token before reaching this controller.
+ * If middleware passes, token is valid and user info is attached to req.user.
+ *
+ * @param {Object} req - Express request object
+ * @param {Object} req.user - User info from authMiddleware (user_id, email, role, iat, exp)
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next middleware function
+ * @returns {Object} JSON response with token validity and user info
+ */
+const verifyToken = async (req, res, next) => {
+  try {
+    // If we reach here, authMiddleware has already verified the token
+    const { user_id, email, role, exp } = req.user;
+
+    // Calculate time until expiration
+    const now = Math.floor(Date.now() / 1000);
+    const expiresIn = exp - now;
+
+    logger.debug('Token verified', { user_id, email, expiresIn });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Token is valid',
+      valid: true,
+      user: {
+        user_id,
+        email,
+        role
+      },
+      expires_in_seconds: expiresIn
+    });
+  } catch (err) {
+    logger.error(`Error in verifyToken: ${err.message}`, {
+      stack: err.stack
+    });
+    next(err);
+  }
+};
+
+/**
+ * Refresh Token - Issue new JWT for recently expired tokens
+ *
+ * Allows users to refresh their token without re-logging in.
+ * Only works for tokens expired within the last 7 days.
+ *
+ * @param {Object} req - Express request object
+ * @param {Object} req.body - Request body
+ * @param {string} req.body.token - The expired or expiring JWT token
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next middleware function
+ * @returns {Object} JSON response with new JWT token
+ */
+const refreshToken = async (req, res, next) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        error: 'Token required',
+        message: 'Please provide a token to refresh'
+      });
+    }
+
+    // Decode token without verification (allows expired tokens)
+    const decoded = decodeToken(token);
+
+    if (!decoded) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid token',
+        message: 'Token could not be decoded'
+      });
+    }
+
+    // Check if token is too old (more than 7 days expired)
+    const now = Math.floor(Date.now() / 1000);
+    const tokenAge = now - decoded.exp;
+    const maxRefreshAge = 7 * 24 * 60 * 60; // 7 days in seconds
+
+    if (tokenAge > maxRefreshAge) {
+      logger.warn('Token refresh attempted for old token', {
+        user_id: decoded.user_id,
+        expired_days_ago: Math.floor(tokenAge / 86400)
+      });
+      return res.status(401).json({
+        success: false,
+        error: 'Token too old',
+        message: 'Token expired more than 7 days ago. Please log in again.'
+      });
+    }
+
+    // Verify user still exists and is activated
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('user_id, email, activated')
+      .eq('user_id', decoded.user_id)
+      .single();
+
+    if (userError || !user) {
+      logger.warn('Token refresh attempted for non-existent user', {
+        user_id: decoded.user_id
+      });
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+        message: 'User account no longer exists'
+      });
+    }
+
+    if (!user.activated) {
+      logger.warn('Token refresh attempted for deactivated user', {
+        user_id: decoded.user_id
+      });
+      return res.status(403).json({
+        success: false,
+        error: 'Account not activated',
+        message: 'Account is not activated. Please activate your account.'
+      });
+    }
+
+    // Generate new token with same payload
+    const newToken = generateToken({
+      user_id: decoded.user_id,
+      email: decoded.email,
+      role: decoded.role || 'user'
+    });
+
+    logger.info('Token refreshed successfully', {
+      user_id: decoded.user_id,
+      email: decoded.email
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Token refreshed successfully',
+      token: newToken,
+      user: {
+        user_id: user.user_id,
+        email: user.email
+      }
+    });
+  } catch (err) {
+    logger.error(`Error in refreshToken: ${err.message}`, {
+      stack: err.stack
+    });
+    next(err);
+  }
+};
+
 module.exports = {
   signup,
   login,
-  activate
+  activate,
+  verifyToken,
+  refreshToken
 };

@@ -1,13 +1,14 @@
 /**
  * Authentication Routes
  *
- * Handles user signup, login, and account activation endpoints.
+ * Handles user signup, login, account activation, and token management.
  * All routes are prefixed with /api/auth
  *
  * Middleware chain for each endpoint:
- * 1. Rate limiter (prevents abuse)
- * 2. Input validation (validates and sanitizes)
- * 3. Controller (business logic)
+ * 1. Rate limiter (prevents abuse) - where applicable
+ * 2. Input validation (validates and sanitizes) - where applicable
+ * 3. Auth middleware (for protected routes)
+ * 4. Controller (business logic)
  *
  * @module routes/auth
  */
@@ -15,6 +16,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
+const authMiddleware = require('../middleware/authMiddleware');
 const { signupValidation, loginValidation, activationValidation } = require('../middleware/validation');
 const { signupRateLimiter, loginRateLimiter, activationRateLimiter } = require('../middleware/rateLimiter');
 
@@ -63,5 +65,30 @@ router.post('/login', loginRateLimiter, loginValidation, authController.login);
  * @returns {Object} Success response with JWT token and API keys
  */
 router.post('/activate', activationRateLimiter, activationValidation, authController.activate);
+
+/**
+ * GET /api/auth/verify-token
+ * Verify if JWT token is valid
+ *
+ * Middleware chain:
+ * 1. Auth middleware (verifies token)
+ * 2. Controller logic (returns user info and expiration)
+ *
+ * @header Authorization: Bearer <token>
+ * @returns {Object} Token validity status, user info, and expiration time
+ */
+router.get('/verify-token', authMiddleware, authController.verifyToken);
+
+/**
+ * POST /api/auth/refresh-token
+ * Refresh an expired or expiring JWT token
+ *
+ * Allows tokens expired within 7 days to be refreshed.
+ * Verifies user still exists and is activated before issuing new token.
+ *
+ * @body {string} token - The expired or expiring JWT token
+ * @returns {Object} New JWT token and user info
+ */
+router.post('/refresh-token', authController.refreshToken);
 
 module.exports = router;
