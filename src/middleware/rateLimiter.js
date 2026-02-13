@@ -26,6 +26,7 @@ const signupRateLimiter = rateLimit({
   },
   standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
   legacyHeaders: false, // Disable deprecated `X-RateLimit-*` headers
+  validate: { xForwardedForHeader: false }
   handler: (req, res) => {
     logger.warn('Signup rate limit exceeded', {
       ip: req.ip,
@@ -55,6 +56,7 @@ const loginRateLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false }
   handler: (req, res) => {
     logger.warn('Login rate limit exceeded', {
       ip: req.ip,
@@ -85,6 +87,7 @@ const activationRateLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false }
   handler: (req, res) => {
     logger.warn('Activation rate limit exceeded', {
       email: req.body?.email,
