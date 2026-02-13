@@ -338,13 +338,14 @@ const activate = async (req, res, next) => {
     };
 
     // Create API key records for insertion
-    const apiKeyRecords = Object.entries(apiKeys).map(([service, key]) => ({
-      user_id: user.id,
-      service_name: service,
-      api_key: key,
-      created_at: new Date().toISOString(),
-      is_active: true
-    }));
+const apiKeyRecords = Object.entries(apiKeys).map(([serviceName, key]) => ({
+  user_id: user.id,
+  service: serviceName,  // ← Changed from service_name to service
+  api_key: key,
+  key_name: serviceName,  // ← Add this field
+  created_at: new Date().toISOString(),
+  is_active: true
+}));
 
     // Insert API keys
     const { error: apiKeyInsertError } = await supabase
