@@ -8,7 +8,7 @@
 
 const supabase = require('../config/supabase');
 const { hashPassword, comparePassword } = require('../utils/passwordUtils');
-const { generateToken, verifyToken, decodeToken } = require('../services/jwtService');
+const { generateToken, verifyToken: verifyJWT, decodeToken } = require('../services/jwtService');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 
