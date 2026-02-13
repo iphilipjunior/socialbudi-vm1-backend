@@ -1,30 +1,29 @@
 /**
  * Authentication Controller
  *
- * Handles all authentication business logic including user signup,
- * login with state-based redirects, and account activation.
+ * Handles user signup, login, account activation, and token management.
  *
  * @module controllers/authController
  */
 
-const crypto = require('crypto');
-const { hashPassword, comparePassword } = require('../utils/passwordUtils');
-const { generateToken, decodeToken } = require('../services/jwtService');
 const supabase = require('../config/supabase');
+const { hashPassword, comparePassword } = require('../utils/passwordUtils');
+const { generateToken, verifyToken, decodeToken } = require('../services/jwtService');
 const logger = require('../utils/logger');
+const crypto = require('crypto');
 
 /**
- * Generates a secure API key using crypto.randomBytes
- * @returns {string} 64-character hex string
+ * Generate API key
+ * @returns {string} API key in format: sk_live_{service}_{random}
  */
 const generateApiKey = () => {
-  return crypto.randomBytes(32).toString('hex');
+  return `sk_live_${crypto.randomBytes(24).toString('hex')}`;
 };
 
 /**
- * Signup - Create a new user account
+ * Signup - Create new user account
  *
- * Creates a new user with pending payment status.
+ * Creates user with pending payment status.
  * Password is hashed before storage.
  *
  * @param {Object} req - Express request object
@@ -46,7 +45,7 @@ const signup = async (req, res, next) => {
     // Check if email already exists
     const { data: existingUser, error: lookupError } = await supabase
       .from('users')
-      .select('user_id')
+      .select('id')
       .eq('email', normalizedEmail)
       .single();
 
@@ -72,14 +71,17 @@ const signup = async (req, res, next) => {
     const { data: newUser, error: insertError } = await supabase
       .from('users')
       .insert({
-        name: name.trim(),
+        full_name: name.trim(),
         email: normalizedEmail,
         password_hash: hashedPassword,
         payment_status: 'pending',
         activated: false,
-        created_at: new Date().toISOString()
+        is_active: true,
+        is_email_verified: false,
+        created_at: new Date().toISOString(),
+        signup_date: new Date().toISOString()
       })
-      .select('user_id, name, email, created_at')
+      .select('id, full_name, email, created_at')
       .single();
 
     if (insertError) {
@@ -96,7 +98,7 @@ const signup = async (req, res, next) => {
     });
 
     logger.info('User signup successful', {
-      user_id: newUser.user_id,
+      user_id: newUser.id,
       email: normalizedEmail
     });
 
@@ -104,7 +106,7 @@ const signup = async (req, res, next) => {
       success: true,
       message: 'Account created successfully. Please complete payment to activate.',
       next_action: 'open_payment_modal',
-      user_id: newUser.user_id
+      user_id: newUser.id
     });
   } catch (err) {
     logger.error(`Error in signup: ${err.message}`, {
@@ -160,7 +162,7 @@ const login = async (req, res, next) => {
     if (!isPasswordValid) {
       // Don't reveal that it's specifically the password that's wrong
       logger.warn('Login attempt with invalid password', {
-        user_id: user.user_id,
+        user_id: user.id,
         email: normalizedEmail
       });
       return res.status(401).json({
@@ -175,35 +177,35 @@ const login = async (req, res, next) => {
     // State 1: Waiting for payment
     if (user.payment_status === 'pending') {
       logger.info('Login successful - payment pending', {
-        user_id: user.user_id,
+        user_id: user.id,
         email: normalizedEmail
       });
       return res.status(200).json({
         success: true,
         message: 'Please complete payment to activate your account',
         redirect: '/waiting-payment',
-        user_id: user.user_id
+        user_id: user.id
       });
     }
 
     // State 2: Paid but not activated
     if (user.payment_status === 'paid' && user.activated === false) {
       logger.info('Login successful - awaiting activation', {
-        user_id: user.user_id,
+        user_id: user.id,
         email: normalizedEmail
       });
       return res.status(200).json({
         success: true,
         message: 'Payment received. Please activate your account.',
         redirect: '/activate',
-        user_id: user.user_id
+        user_id: user.id
       });
     }
 
     // State 3: Fully activated - generate JWT and return dashboard redirect
     if (user.activated === true) {
       const token = generateToken({
-        user_id: user.user_id,
+        user_id: user.id,
         email: user.email,
         role: 'user'
       });
@@ -212,10 +214,10 @@ const login = async (req, res, next) => {
       await supabase
         .from('users')
         .update({ last_login: new Date().toISOString() })
-        .eq('user_id', user.user_id);
+        .eq('id', user.id);
 
       logger.info('Login successful - fully activated', {
-        user_id: user.user_id,
+        user_id: user.id,
         email: normalizedEmail
       });
 
@@ -225,8 +227,8 @@ const login = async (req, res, next) => {
         redirect: '/dashboard',
         token: token,
         user: {
-          user_id: user.user_id,
-          name: user.name,
+          user_id: user.id,
+          name: user.full_name,
           email: user.email,
           role: 'user'
         }
@@ -235,7 +237,7 @@ const login = async (req, res, next) => {
 
     // Fallback for unexpected state
     logger.error('Unexpected account state during login', {
-      user_id: user.user_id,
+      user_id: user.id,
       payment_status: user.payment_status,
       activated: user.activated
     });
@@ -293,7 +295,7 @@ const activate = async (req, res, next) => {
     // Check if already activated
     if (user.activated === true) {
       logger.warn('Activation attempt for already activated account', {
-        user_id: user.user_id,
+        user_id: user.id,
         email: normalizedEmail
       });
       return res.status(400).json({
@@ -306,7 +308,7 @@ const activate = async (req, res, next) => {
     // Check for duplicate Payment ID
     const { data: existingPayment, error: paymentLookupError } = await supabase
       .from('users')
-      .select('user_id')
+      .select('id')
       .eq('payment_id', payment_id)
       .single();
 
@@ -337,7 +339,7 @@ const activate = async (req, res, next) => {
 
     // Create API key records for insertion
     const apiKeyRecords = Object.entries(apiKeys).map(([service, key]) => ({
-      user_id: user.user_id,
+      user_id: user.id,
       service_name: service,
       api_key: key,
       created_at: new Date().toISOString(),
@@ -361,9 +363,10 @@ const activate = async (req, res, next) => {
         payment_status: 'paid',
         payment_id: payment_id,
         activated: true,
-        activated_at: new Date().toISOString()
+        activated_at: new Date().toISOString(),
+        payment_verified_at: new Date().toISOString()
       })
-      .eq('user_id', user.user_id);
+      .eq('id', user.id);
 
     if (updateError) {
       logger.error('Error updating user to activated:', { error: updateError });
@@ -372,7 +375,7 @@ const activate = async (req, res, next) => {
 
     // Generate JWT token
     const token = generateToken({
-      user_id: user.user_id,
+      user_id: user.id,
       email: user.email,
       role: 'user'
     });
@@ -386,7 +389,7 @@ const activate = async (req, res, next) => {
     });
 
     logger.info('Account activation successful', {
-      user_id: user.user_id,
+      user_id: user.id,
       email: normalizedEmail
     });
 
@@ -457,7 +460,7 @@ const verifyToken = async (req, res, next) => {
  * @param {string} req.body.token - The expired or expiring JWT token
  * @param {Object} res - Express response object
  * @param {Function} next - Express next middleware function
- * @returns {Object} JSON response with new JWT token
+ * @returns {Object} JSON response with new token
  */
 const refreshToken = async (req, res, next) => {
   try {
@@ -478,53 +481,43 @@ const refreshToken = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         error: 'Invalid token',
-        message: 'Token could not be decoded'
+        message: 'The provided token is invalid'
       });
     }
 
-    // Check if token is too old (more than 7 days expired)
+    // Check if token expired more than 7 days ago
     const now = Math.floor(Date.now() / 1000);
-    const tokenAge = now - decoded.exp;
-    const maxRefreshAge = 7 * 24 * 60 * 60; // 7 days in seconds
+    const expiredFor = now - decoded.exp;
+    const sevenDays = 7 * 24 * 60 * 60;
 
-    if (tokenAge > maxRefreshAge) {
-      logger.warn('Token refresh attempted for old token', {
-        user_id: decoded.user_id,
-        expired_days_ago: Math.floor(tokenAge / 86400)
-      });
+    if (expiredFor > sevenDays) {
       return res.status(401).json({
         success: false,
         error: 'Token too old',
-        message: 'Token expired more than 7 days ago. Please log in again.'
+        message: 'This token expired more than 7 days ago. Please log in again.'
       });
     }
 
     // Verify user still exists and is activated
-    const { data: user, error: userError } = await supabase
+    const { data: user, error: lookupError } = await supabase
       .from('users')
-      .select('user_id, email, activated')
-      .eq('user_id', decoded.user_id)
+      .select('id, email, activated')
+      .eq('id', decoded.user_id)
       .single();
 
-    if (userError || !user) {
-      logger.warn('Token refresh attempted for non-existent user', {
-        user_id: decoded.user_id
-      });
+    if (lookupError || !user) {
       return res.status(404).json({
         success: false,
         error: 'User not found',
-        message: 'User account no longer exists'
+        message: 'The user associated with this token no longer exists'
       });
     }
 
-    if (!user.activated) {
-      logger.warn('Token refresh attempted for deactivated user', {
-        user_id: decoded.user_id
-      });
+    if (user.activated !== true) {
       return res.status(403).json({
         success: false,
         error: 'Account not activated',
-        message: 'Account is not activated. Please activate your account.'
+        message: 'Please activate your account.'
       });
     }
 
@@ -545,7 +538,7 @@ const refreshToken = async (req, res, next) => {
       message: 'Token refreshed successfully',
       token: newToken,
       user: {
-        user_id: user.user_id,
+        user_id: user.id,
         email: user.email
       }
     });
