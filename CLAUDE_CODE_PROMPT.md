@@ -6,6 +6,28 @@ You are building the authentication backend for SocialBudi, a lead generation pl
 Refer to the implementation documentation in project sources titled:
 "SOCIALBUDI PLATFORM - COMPLETE IMPLEMENTATION DOCUMENTATION"
 
+## Phase Status
+- ✅ Phase 1: Foundation & Database Setup - COMPLETED
+- ✅ Phase 2: Authentication Backend - COMPLETED
+- 🔄 Phase 3: Payment Backend & n8n Workflow - IN PROGRESS
+
+## Current Phase: Phase 3
+You are now implementing the payment verification system that converts signups into paying customers.
+
+**Phase 3 Objectives:**
+- Create payment confirmation webhook endpoint (POST /api/payment/confirm)
+- Integrate with n8n workflow for Selfany payment processing
+- Implement Payment ID validation for account activation
+- Add orphaned payment detection system
+- Ensure only paid users can activate accounts
+
+**Critical Rules for Phase 3:**
+- Do NOT modify Phase 1 or Phase 2 code unless explicitly instructed
+- Run all Phase 2 tests after making changes to ensure no regression
+- Payment webhook must verify signature using N8N_WEBHOOK_SECRET
+- Payment IDs must be unique and match user email
+- All payment transactions must be logged to system_logs
+
 ## Your Role
 - Write production-ready code following these specifications
 - Follow the tech stack strictly (no substitutions)
@@ -32,21 +54,26 @@ Refer to the implementation documentation in project sources titled:
 ├── src/
 │   ├── server.js              # Express app entry point
 │   ├── config/
-│   │   └── supabase.js        # Supabase client (already exists)
+│   │   └── supabase.js        # Supabase client (Phase 1) ✅ DONE
 │   ├── routes/
-│   │   ├── health.js          # Health checks (already exists)
-│   │   └── auth.js            # Auth routes (Phase 2)
+│   │   ├── health.js          # Health checks (Phase 1) ✅ DONE
+│   │   ├── auth.js            # Auth routes (Phase 2) ✅ DONE
+│   │   └── payment.js         # Payment routes (Phase 3) ⬅️ NEW
 │   ├── controllers/
-│   │   └── authController.js  # Auth business logic
+│   │   ├── authController.js  # Auth logic (Phase 2) ✅ DONE
+│   │   └── paymentController.js  # Payment logic (Phase 3) ⬅️ NEW
 │   ├── services/
-│   │   └── jwtService.js      # JWT token operations
+│   │   ├── jwtService.js      # JWT token operations (Phase 2) ✅ DONE
+│   │   ├── paymentService.js  # Payment processing (Phase 3) ⬅️ NEW
+│   │   └── orphanedPaymentService.js  # Orphaned detection (Phase 3) ⬅️ NEW
 │   ├── middleware/
-│   │   ├── errorHandler.js    # Global errors (already exists)
-│   │   ├── authMiddleware.js  # JWT verification
-│   │   └── validation.js      # Input validators
+│   │   ├── errorHandler.js    # Global errors (Phase 1) ✅ DONE
+│   │   ├── authMiddleware.js  # JWT verification (Phase 2) ✅ DONE
+│   │   ├── rateLimiter.js     # Rate limiting (Phase 2) ✅ DONE
+│   │   └── validation.js      # Input validators (Phase 2) ✅ DONE
 │   └── utils/
-│       ├── logger.js          # Winston logger (already exists)
-│       └── passwordUtils.js   # Bcrypt operations
+│       ├── logger.js          # Winston logger (Phase 1) ✅ DONE
+│       └── passwordUtils.js   # Bcrypt operations (Phase 2) ✅ DONE
 ├── tests/
 │   ├── unit/                  # Unit tests
 │   └── integration/           # Integration tests
@@ -55,9 +82,45 @@ Refer to the implementation documentation in project sources titled:
 ├── .env.example               # Template for .env
 ├── .gitignore
 ├── package.json
+├── jest.config.js             # Jest test configuration
 ├── deploy.sh                  # Deployment script
 └── README.md
 ```
+
+## Phase 3 Critical Information
+
+### Payment Webhook Endpoint
+- **Route:** POST /api/payment/confirm
+- **Purpose:** Receive payment confirmations from Selfany via n8n
+- **Authentication:** Webhook signature verification (N8N_WEBHOOK_SECRET)
+- **Request Body:** { payment_id, email, amount, currency, status, timestamp, signature }
+- **Response:** { success, message, user_id, payment_id }
+
+### Payment Processing Logic
+1. Verify webhook signature using HMAC SHA256
+2. Find user by email
+3. Check for duplicate Payment ID
+4. Update user: payment_status='paid', payment_id=value
+5. Log transaction to system_logs
+6. Return success response
+
+### Payment ID Validation Rules
+- Format: Must match regex `PS_[A-Za-z0-9]{3,50}`
+- Uniqueness: Cannot be reused by different users
+- Ownership: Payment ID must belong to user attempting activation
+- Status: User must have payment_status='paid' before activation
+
+### Orphaned Payment Detection
+- Definition: Payment exists but no matching user signup
+- Detection: Query users with payment_id but mismatched email
+- Action: Create entry in duplicate_payments table, create admin alert
+- Trigger: Can be manual (GET /api/admin/check-orphaned-payments) or scheduled
+
+### Database Tables Used (Phase 3)
+- **users:** Update payment_status and payment_id columns
+- **duplicate_payments:** Store duplicate/orphaned payment records
+- **system_logs:** Log all payment transactions
+- **admin_alerts:** Alert admins about payment issues
 
 ## Coding Standards
 
@@ -339,6 +402,15 @@ const PORT = process.env.PORT || 3000;
 - Input validation: MUST sanitize and validate ALL inputs
 - Error messages: MUST NOT leak system information (e.g., "Invalid credentials" not "User not found")
 - HTTPS: Assume HTTPS in production (Nginx handles this)
+
+### Payment Security (Phase 3)
+- **Webhook Signatures:** Always verify N8N_WEBHOOK_SECRET signature before processing
+- **Payment ID Format:** Strict validation (PS_[A-Za-z0-9]{3,50})
+- **Duplicate Prevention:** Check Payment ID uniqueness before storing
+- **User Matching:** Payment email must match user email
+- **Audit Logging:** Log all payment transactions (success and failure)
+- **HTTPS Only:** All payment endpoints require HTTPS
+- **No Sensitive Data Logging:** Never log credit card numbers or full payment details
 
 ## Performance Guidelines
 - Use indexes for database queries (already configured in Supabase)
