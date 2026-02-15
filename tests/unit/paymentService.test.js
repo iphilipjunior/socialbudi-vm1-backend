@@ -172,9 +172,9 @@ describe('paymentService', () => {
       expect(result).toBeNull();
     });
 
-    it('should reject invalid payment_id format', () => {
+    it('should accept Payment ID with PS_ format', () => {
       const data = {
-        payment_id: 'INVALID',
+        payment_id: 'PS_697b73d1eb2ff',
         email: 'test@example.com',
         amount: 10.00,
         currency: 'USD',
@@ -183,14 +183,54 @@ describe('paymentService', () => {
       };
 
       const result = paymentService.validatePaymentData(data);
-      expect(result).toBeInstanceOf(Array);
-      expect(result.length).toBeGreaterThan(0);
-      expect(result[0].field).toBe('payment_id');
+      expect(result).toBeNull();
     });
 
-    it('should reject payment_id without PS_ prefix', () => {
+    it('should accept Payment ID with numeric format', () => {
       const data = {
-        payment_id: 'abc123xyz',
+        payment_id: '5786268280',
+        email: 'test@example.com',
+        amount: 10.00,
+        currency: 'USD',
+        status: 'completed',
+        timestamp: '2026-02-14T10:00:00Z'
+      };
+
+      const result = paymentService.validatePaymentData(data);
+      expect(result).toBeNull();
+    });
+
+    it('should accept Payment ID with mixed format', () => {
+      const data = {
+        payment_id: 'REF-2024-ABC-123',
+        email: 'test@example.com',
+        amount: 10.00,
+        currency: 'USD',
+        status: 'completed',
+        timestamp: '2026-02-14T10:00:00Z'
+      };
+
+      const result = paymentService.validatePaymentData(data);
+      expect(result).toBeNull();
+    });
+
+    it('should accept Payment ID with special characters', () => {
+      const data = {
+        payment_id: 'PAY-ID_2024/01/29-ABC',
+        email: 'test@example.com',
+        amount: 10.00,
+        currency: 'USD',
+        status: 'completed',
+        timestamp: '2026-02-14T10:00:00Z'
+      };
+
+      const result = paymentService.validatePaymentData(data);
+      expect(result).toBeNull();
+    });
+
+    it('should reject empty Payment ID', () => {
+      const data = {
+        payment_id: '',
         email: 'test@example.com',
         amount: 10.00,
         currency: 'USD',
@@ -203,8 +243,23 @@ describe('paymentService', () => {
       expect(result.some(e => e.field === 'payment_id')).toBe(true);
     });
 
-    it('should reject missing payment_id', () => {
+    it('should reject missing Payment ID', () => {
       const data = {
+        email: 'test@example.com',
+        amount: 10.00,
+        currency: 'USD',
+        status: 'completed',
+        timestamp: '2026-02-14T10:00:00Z'
+      };
+
+      const result = paymentService.validatePaymentData(data);
+      expect(result).toBeInstanceOf(Array);
+      expect(result.some(e => e.field === 'payment_id')).toBe(true);
+    });
+
+    it('should reject Payment ID longer than 100 characters', () => {
+      const data = {
+        payment_id: 'a'.repeat(101),
         email: 'test@example.com',
         amount: 10.00,
         currency: 'USD',
@@ -439,7 +494,7 @@ describe('paymentService', () => {
 
     it('should return multiple errors for multiple invalid fields', () => {
       const data = {
-        payment_id: 'INVALID',
+        payment_id: '',
         email: 'not-email',
         amount: 5.00,
         currency: 'EUR',
@@ -450,64 +505,6 @@ describe('paymentService', () => {
       const result = paymentService.validatePaymentData(data);
       expect(result).toBeInstanceOf(Array);
       expect(result.length).toBe(6); // All 6 fields invalid
-    });
-
-    it('should accept valid payment_id with minimum length (PS_abc)', () => {
-      const data = {
-        payment_id: 'PS_abc',
-        email: 'test@example.com',
-        amount: 10.00,
-        currency: 'USD',
-        status: 'completed',
-        timestamp: '2026-02-14T10:00:00Z'
-      };
-
-      const result = paymentService.validatePaymentData(data);
-      expect(result).toBeNull();
-    });
-
-    it('should accept valid payment_id with maximum length (50 chars after PS_)', () => {
-      const data = {
-        payment_id: 'PS_' + 'a'.repeat(50),
-        email: 'test@example.com',
-        amount: 10.00,
-        currency: 'USD',
-        status: 'completed',
-        timestamp: '2026-02-14T10:00:00Z'
-      };
-
-      const result = paymentService.validatePaymentData(data);
-      expect(result).toBeNull();
-    });
-
-    it('should reject payment_id shorter than minimum (PS_ab)', () => {
-      const data = {
-        payment_id: 'PS_ab',
-        email: 'test@example.com',
-        amount: 10.00,
-        currency: 'USD',
-        status: 'completed',
-        timestamp: '2026-02-14T10:00:00Z'
-      };
-
-      const result = paymentService.validatePaymentData(data);
-      expect(result).toBeInstanceOf(Array);
-      expect(result.some(e => e.field === 'payment_id')).toBe(true);
-    });
-
-    it('should reject payment_id longer than maximum (more than 50 chars after PS_)', () => {
-      const data = {
-        payment_id: 'PS_' + 'a'.repeat(51),
-        email: 'test@example.com',
-        amount: 10.00,
-        currency: 'USD',
-        status: 'completed',
-        timestamp: '2026-02-14T10:00:00Z'
-      };
-
-      const result = paymentService.validatePaymentData(data);
-      expect(result).toBeInstanceOf(Array);
-      expect(result.some(e => e.field === 'payment_id')).toBe(true);
     });
 
     it('should accept valid ISO 8601 timestamp with timezone', () => {
@@ -536,35 +533,6 @@ describe('paymentService', () => {
 
       const result = paymentService.validatePaymentData(data);
       expect(result).toBeNull();
-    });
-
-    it('should accept payment_id with mixed alphanumeric characters', () => {
-      const data = {
-        payment_id: 'PS_Abc123XYZ789',
-        email: 'test@example.com',
-        amount: 10.00,
-        currency: 'USD',
-        status: 'completed',
-        timestamp: '2026-02-14T10:00:00Z'
-      };
-
-      const result = paymentService.validatePaymentData(data);
-      expect(result).toBeNull();
-    });
-
-    it('should reject payment_id with special characters', () => {
-      const data = {
-        payment_id: 'PS_abc-123_xyz',
-        email: 'test@example.com',
-        amount: 10.00,
-        currency: 'USD',
-        status: 'completed',
-        timestamp: '2026-02-14T10:00:00Z'
-      };
-
-      const result = paymentService.validatePaymentData(data);
-      expect(result).toBeInstanceOf(Array);
-      expect(result.some(e => e.field === 'payment_id')).toBe(true);
     });
   });
 

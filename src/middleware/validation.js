@@ -95,7 +95,7 @@ const loginValidation = validate([
  *
  * Validates:
  * - email: valid format, normalized
- * - payment_id: must match PS_[alphanumeric]{3,50} pattern
+ * - payment_id: non-empty string up to 100 characters (accepts any format)
  */
 const activationValidation = validate([
   body('email')
@@ -106,10 +106,10 @@ const activationValidation = validate([
 
   body('payment_id')
     .trim()
-    .matches(/^PS_[A-Za-z0-9]{3,50}$/)
-    .withMessage('Invalid Payment ID format. Must start with PS_ followed by 3-50 alphanumeric characters')
-    .isLength({ min: 6, max: 53 })
-    .withMessage('Payment ID must be between 6 and 53 characters')
+    .notEmpty()
+    .withMessage('Payment ID is required')
+    .isLength({ min: 1, max: 100 })
+    .withMessage('Payment ID must be between 1 and 100 characters')
 ]);
 
 module.exports = {

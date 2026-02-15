@@ -55,10 +55,14 @@ const verifyWebhookSignature = (payload, signature) => {
 const validatePaymentData = (data) => {
   const errors = [];
 
-  // Validate payment_id format
-  const paymentIdRegex = /^PS_[A-Za-z0-9]{3,50}$/;
-  if (!data.payment_id || !paymentIdRegex.test(data.payment_id)) {
-    errors.push({ field: 'payment_id', message: 'Invalid Payment ID format. Must match PS_[A-Za-z0-9]{3,50}' });
+  // Validate payment_id is not empty
+  if (!data.payment_id || typeof data.payment_id !== 'string' || data.payment_id.trim() === '') {
+    errors.push({ field: 'payment_id', message: 'Payment ID is required' });
+  }
+
+  // Validate payment_id length (reasonable maximum)
+  if (data.payment_id && data.payment_id.length > 100) {
+    errors.push({ field: 'payment_id', message: 'Payment ID must not exceed 100 characters' });
   }
 
   // Validate email format
