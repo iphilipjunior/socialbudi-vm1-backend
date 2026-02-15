@@ -305,28 +305,41 @@ const activate = async (req, res, next) => {
       });
     }
 
-    // Check for duplicate Payment ID
-    const { data: existingPayment, error: paymentLookupError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('payment_id', payment_id)
-      .single();
+    // Verify Payment ID belongs to this user
+if (!user.payment_id) {
+  logger.warn('Activation attempt for user with no payment', {
+    email: normalizedEmail
+  });
+  return res.status(400).json({
+    success: false,
+    error: 'No payment found',
+    message: 'Please complete payment before activating your account'
+  });
+}
 
-    if (paymentLookupError && paymentLookupError.code !== 'PGRST116') {
-      logger.error('Error checking for duplicate payment ID:', { error: paymentLookupError });
-    }
+if (user.payment_id !== payment_id) {
+  logger.warn('Activation attempt with mismatched payment ID', {
+    email: normalizedEmail,
+    provided: payment_id,
+    expected: user.payment_id
+  });
+  return res.status(403).json({
+    success: false,
+    error: 'Invalid Payment ID',
+    message: 'This Payment ID does not match your account'
+  });
+}
 
-    if (existingPayment) {
-      logger.warn('Activation attempt with duplicate payment ID', {
-        email: normalizedEmail,
-        payment_id: payment_id
-      });
-      return res.status(409).json({
-        success: false,
-        error: 'Payment ID already used',
-        message: 'This payment ID has already been used for another account'
-      });
-    }
+if (user.payment_status !== 'paid') {
+  logger.warn('Activation attempt for unpaid user', {
+    email: normalizedEmail
+  });
+  return res.status(400).json({
+    success: false,
+    error: 'Payment not confirmed',
+    message: 'Your payment has not been processed yet. Please wait or contact support.'
+  });
+}
 
     // Generate 5 API keys for different services
     const apiKeys = {
