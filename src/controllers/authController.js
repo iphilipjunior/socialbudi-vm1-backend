@@ -10,6 +10,7 @@
 const crypto = require('crypto');
 const { hashPassword, comparePassword } = require('../utils/passwordUtils');
 const { generateToken, decodeToken } = require('../services/jwtService');
+const { validatePaymentId } = require('../services/paymentValidationService');
 const supabase = require('../config/supabase');
 const logger = require('../utils/logger');
 
@@ -303,26 +304,26 @@ const activate = async (req, res, next) => {
       });
     }
 
-    // Check for duplicate Payment ID
-    const { data: existingPayment, error: paymentLookupError } = await supabase
-      .from('users')
-      .select('user_id')
-      .eq('payment_id', payment_id)
-      .single();
-
-    if (paymentLookupError && paymentLookupError.code !== 'PGRST116') {
-      logger.error('Error checking for duplicate payment ID:', { error: paymentLookupError });
-    }
-
-    if (existingPayment) {
-      logger.warn('Activation attempt with duplicate payment ID', {
+    // Validate Payment ID using validation service
+    try {
+      await validatePaymentId(normalizedEmail, payment_id);
+    } catch (validationError) {
+      logger.warn('Payment validation failed during activation', {
         email: normalizedEmail,
-        payment_id: payment_id
+        error: validationError.message
       });
-      return res.status(409).json({
+
+      // Determine appropriate HTTP status code based on error
+      let statusCode = 400;
+      if (validationError.message === 'User not found') {
+        statusCode = 404;
+      } else if (validationError.message === 'Payment ID does not match') {
+        statusCode = 403;
+      }
+
+      return res.status(statusCode).json({
         success: false,
-        error: 'Payment ID already used',
-        message: 'This payment ID has already been used for another account'
+        error: validationError.message
       });
     }
 
@@ -355,11 +356,10 @@ const activate = async (req, res, next) => {
     }
 
     // Update user record to activated
+    // Note: payment_status and payment_id are already set by the payment webhook
     const { error: updateError } = await supabase
       .from('users')
       .update({
-        payment_status: 'paid',
-        payment_id: payment_id,
         activated: true,
         activated_at: new Date().toISOString()
       })
