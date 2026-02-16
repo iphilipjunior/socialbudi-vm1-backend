@@ -371,11 +371,10 @@ const apiKeyRecords = Object.entries(apiKeys).map(([serviceName, key]) => ({
     }
 
     // Update user record to activated
+    // Note: payment_status and payment_id are already set by the payment webhook
     const { error: updateError } = await supabase
       .from('users')
       .update({
-        payment_status: 'paid',
-        payment_id: payment_id,
         activated: true,
         activated_at: new Date().toISOString(),
         payment_verified_at: new Date().toISOString()
