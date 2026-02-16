@@ -61,7 +61,7 @@ router.post('/login', loginRateLimiter, loginValidation, authController.login);
  * 3. Controller logic
  *
  * @body {string} email - User's email address
- * @body {string} payment_id - Payment ID from payment provider (format: PS_[alphanumeric]{3,50})
+ * @body {string} payment_id - Payment ID from payment provider (1-100 characters, any format)
  * @returns {Object} Success response with JWT token and API keys
  */
 router.post('/activate', activationRateLimiter, activationValidation, authController.activate);
