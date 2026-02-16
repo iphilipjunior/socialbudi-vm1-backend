@@ -74,7 +74,7 @@ const loginRateLimiter = rateLimit({
 /**
  * Rate limiter for activation endpoint
  * Limits to 20 activation attempts per hour per IP address
- * 
+ *
  * Purpose: Prevent Payment ID guessing attacks
  */
 const activationRateLimiter = rateLimit({
@@ -102,8 +102,109 @@ const activationRateLimiter = rateLimit({
   }
 });
 
+// ============================================================================
+// Phase 4: User Management Rate Limiters
+// ============================================================================
+
+/**
+ * Rate limiter for user profile endpoints
+ * Limits to 30 requests per minute per user
+ *
+ * Purpose: Prevent API abuse on profile read/update operations
+ */
+const userProfileRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30,
+  message: {
+    success: false,
+    error: 'Too many requests',
+    message: 'Too many profile requests. Please try again in 1 minute.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  handler: (req, res) => {
+    logger.warn('User profile rate limit exceeded', {
+      userId: req.user?.id,
+      ip: req.ip,
+      path: req.path
+    });
+    res.status(429).json({
+      success: false,
+      error: 'Too many requests',
+      message: 'Too many profile requests. Please try again in 1 minute.'
+    });
+  }
+});
+
+/**
+ * Rate limiter for password change endpoint
+ * Limits to 5 attempts per hour per user
+ *
+ * Purpose: Prevent password brute force and abuse
+ */
+const passwordChangeRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: {
+    success: false,
+    error: 'Too many password change attempts',
+    message: 'Too many password change attempts. Please try again in 1 hour.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  handler: (req, res) => {
+    logger.warn('Password change rate limit exceeded', {
+      userId: req.user?.id,
+      ip: req.ip,
+      path: req.path
+    });
+    res.status(429).json({
+      success: false,
+      error: 'Too many password change attempts',
+      message: 'Too many password change attempts. Please try again in 1 hour.'
+    });
+  }
+});
+
+/**
+ * Rate limiter for cookie storage endpoint
+ * Limits to 10 requests per minute per user
+ *
+ * Purpose: Prevent cookie flooding attacks
+ */
+const cookieStorageRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10,
+  message: {
+    success: false,
+    error: 'Too many cookie storage requests',
+    message: 'Too many cookie storage requests. Please try again in 1 minute.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  handler: (req, res) => {
+    logger.warn('Cookie storage rate limit exceeded', {
+      userId: req.user?.id,
+      ip: req.ip,
+      path: req.path
+    });
+    res.status(429).json({
+      success: false,
+      error: 'Too many cookie storage requests',
+      message: 'Too many cookie storage requests. Please try again in 1 minute.'
+    });
+  }
+});
+
 module.exports = {
   signupRateLimiter,
   loginRateLimiter,
-  activationRateLimiter
+  activationRateLimiter,
+  // Phase 4
+  userProfileRateLimiter,
+  passwordChangeRateLimiter,
+  cookieStorageRateLimiter
 };

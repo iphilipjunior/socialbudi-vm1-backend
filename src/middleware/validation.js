@@ -112,8 +112,69 @@ const activationValidation = validate([
     .withMessage('Payment ID must be between 1 and 100 characters')
 ]);
 
+// ============================================================================
+// Phase 4: User Management Validators
+// ============================================================================
+
+/**
+ * Profile update validation rules
+ *
+ * Validates:
+ * - name: optional, 2-100 chars, letters/spaces/hyphens/apostrophes only
+ */
+const validateProfileUpdate = validate([
+  body('name')
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Name must be between 2 and 100 characters')
+    .matches(/^[a-zA-Z\s'-]+$/)
+    .withMessage('Name can only contain letters, spaces, hyphens and apostrophes')
+]);
+
+/**
+ * Password change validation rules
+ *
+ * Validates:
+ * - current_password: required, not empty
+ * - new_password: 8-128 chars, must have uppercase, lowercase, number, no spaces
+ */
+const validatePasswordChange = validate([
+  body('current_password')
+    .notEmpty()
+    .withMessage('Current password is required'),
+
+  body('new_password')
+    .isLength({ min: 8, max: 128 })
+    .withMessage('New password must be between 8 and 128 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('New password must contain at least one uppercase letter, one lowercase letter, and one number')
+    .not()
+    .matches(/\s/)
+    .withMessage('New password cannot contain spaces')
+]);
+
+/**
+ * Cookie storage validation rules
+ *
+ * Validates:
+ * - linkedin_cookie: required, non-empty string, max 10000 chars
+ */
+const validateCookieStorage = validate([
+  body('linkedin_cookie')
+    .trim()
+    .notEmpty()
+    .withMessage('LinkedIn cookie is required')
+    .isLength({ max: 10000 })
+    .withMessage('LinkedIn cookie must not exceed 10000 characters')
+]);
+
 module.exports = {
   signupValidation,
   loginValidation,
-  activationValidation
+  activationValidation,
+  // Phase 4
+  validateProfileUpdate,
+  validatePasswordChange,
+  validateCookieStorage
 };
