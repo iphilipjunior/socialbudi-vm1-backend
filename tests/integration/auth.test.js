@@ -2,7 +2,7 @@
  * Integration Tests for Authentication Endpoints
  *
  * Tests complete user flows:
- * 1. Signup → Login (pending payment) → Activate → Login (with token)
+ * 1. Signup → Payment Webhook → Activate → Login (with token)
  * 2. Token verification and refresh
  * 3. Error cases and validation
  *
@@ -13,7 +13,9 @@
 // Set up test environment variables before importing app
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-key-for-testing';
 process.env.JWT_EXPIRES_IN = '1h';
+process.env.N8N_WEBHOOK_SECRET = process.env.N8N_WEBHOOK_SECRET || 'test-webhook-secret';
 
+const crypto = require('crypto');
 const request = require('supertest');
 const app = require('../../src/server');
 
@@ -27,6 +29,38 @@ const testUser = {
 let testUserId;
 let testToken;
 const testPaymentId = `PS_TEST${Date.now()}`;
+
+/**
+ * Helper function to simulate payment webhook from n8n
+ * Creates proper HMAC signature and sends webhook payload
+ *
+ * @param {string} email - User's email address
+ * @param {string} paymentId - Payment ID from payment provider
+ * @param {Object} options - Optional overrides for payload
+ * @returns {Promise} Supertest response promise
+ */
+const simulatePaymentWebhook = (email, paymentId, options = {}) => {
+  const payload = {
+    payment_id: paymentId,
+    email: email,
+    amount: options.amount || 10.00,
+    currency: options.currency || 'USD',
+    status: options.status || 'completed',
+    timestamp: options.timestamp || new Date().toISOString()
+  };
+
+  // Generate HMAC signature
+  const secret = process.env.N8N_WEBHOOK_SECRET;
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(JSON.stringify(payload))
+    .digest('hex');
+
+  return request(app)
+    .post('/api/payment/confirm')
+    .set('X-Webhook-Signature', signature)
+    .send(payload);
+};
 
 describe('Authentication Integration Tests', () => {
   describe('POST /api/auth/signup', () => {
@@ -149,17 +183,122 @@ describe('Authentication Integration Tests', () => {
     });
   });
 
+  describe('POST /api/payment/confirm (Payment Webhook)', () => {
+    it('should process valid payment webhook', async () => {
+      const res = await simulatePaymentWebhook(testUser.email, testPaymentId);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.message).toContain('processed');
+    });
+
+    it('should reject webhook with invalid signature', async () => {
+      const payload = {
+        payment_id: `PS_INVALID${Date.now()}`,
+        email: testUser.email,
+        amount: 10.00,
+        currency: 'USD',
+        status: 'completed',
+        timestamp: new Date().toISOString()
+      };
+
+      const res = await request(app)
+        .post('/api/payment/confirm')
+        .set('X-Webhook-Signature', 'invalid-signature')
+        .send(payload);
+
+      expect(res.status).toBe(401);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should reject webhook for non-existent user', async () => {
+      const res = await simulatePaymentWebhook(
+        'nonexistent@example.com',
+        `PS_NOUSER${Date.now()}`
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should reject duplicate payment ID', async () => {
+      // Create a new user
+      const newUser = {
+        name: 'Duplicate Payment User',
+        email: `duplicate-${Date.now()}@example.com`,
+        password: 'TestPassword123!'
+      };
+
+      await request(app)
+        .post('/api/auth/signup')
+        .send(newUser);
+
+      // Try to use the same payment ID that was already used
+      const res = await simulatePaymentWebhook(newUser.email, testPaymentId);
+
+      expect(res.status).toBe(409);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toContain('already exists');
+    });
+
+    it('should reject invalid amount', async () => {
+      const res = await simulatePaymentWebhook(
+        testUser.email,
+        `PS_WRONGAMT${Date.now()}`,
+        { amount: 5.00 }
+      );
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should reject missing webhook signature', async () => {
+      const payload = {
+        payment_id: `PS_NOSIG${Date.now()}`,
+        email: testUser.email,
+        amount: 10.00,
+        currency: 'USD',
+        status: 'completed',
+        timestamp: new Date().toISOString()
+      };
+
+      const res = await request(app)
+        .post('/api/payment/confirm')
+        .send(payload);
+
+      expect(res.status).toBe(401);
+      expect(res.body.success).toBe(false);
+    });
+  });
+
+  describe('POST /api/auth/login (after payment, before activation)', () => {
+    it('should return activate redirect for paid but unactivated user', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testUser.email,
+          password: testUser.password
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.redirect).toBe('/activate');
+      expect(res.body.token).toBeUndefined();
+    });
+  });
+
   describe('POST /api/auth/activate', () => {
-    it('should reject invalid Payment ID format', async () => {
+    it('should reject activation with mismatched Payment ID', async () => {
       const res = await request(app)
         .post('/api/auth/activate')
         .send({
           email: testUser.email,
-          payment_id: 'INVALID'
+          payment_id: 'WRONG_PAYMENT_ID'
         });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(403);
       expect(res.body.success).toBe(false);
+      expect(res.body.error).toContain('does not match');
     });
 
     it('should reject non-existent user', async () => {
@@ -174,7 +313,7 @@ describe('Authentication Integration Tests', () => {
       expect(res.body.success).toBe(false);
     });
 
-    it('should activate user with valid Payment ID', async () => {
+    it('should activate user with matching Payment ID', async () => {
       const res = await request(app)
         .post('/api/auth/activate')
         .send({
@@ -201,7 +340,7 @@ describe('Authentication Integration Tests', () => {
         .post('/api/auth/activate')
         .send({
           email: testUser.email,
-          payment_id: `PS_ANOTHER${Date.now()}`
+          payment_id: testPaymentId
         });
 
       expect(res.status).toBe(400);
@@ -209,29 +348,29 @@ describe('Authentication Integration Tests', () => {
       expect(res.body.error).toContain('already activated');
     });
 
-    it('should reject duplicate Payment ID', async () => {
-      // First, create a new user
-      const newUser = {
-        name: 'Another User',
-        email: `another-${Date.now()}@example.com`,
+    it('should reject activation without payment webhook', async () => {
+      // Create a new user who has NOT received payment webhook
+      const noPaidUser = {
+        name: 'No Payment User',
+        email: `nopayment-${Date.now()}@example.com`,
         password: 'TestPassword123!'
       };
 
       await request(app)
         .post('/api/auth/signup')
-        .send(newUser);
+        .send(noPaidUser);
 
-      // Try to activate with the same payment ID
+      // Try to activate without payment webhook
       const res = await request(app)
         .post('/api/auth/activate')
         .send({
-          email: newUser.email,
-          payment_id: testPaymentId
+          email: noPaidUser.email,
+          payment_id: `PS_FAKE${Date.now()}`
         });
 
-      expect(res.status).toBe(409);
+      expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
-      expect(res.body.error).toContain('already used');
+      expect(res.body.error).toContain('No payment found');
     });
   });
 
@@ -333,7 +472,7 @@ describe('Authentication Integration Tests', () => {
   });
 
   describe('Complete User Flow', () => {
-    it('should complete full signup → login → activate → login flow', async () => {
+    it('should complete full signup → payment webhook → activate → login flow', async () => {
       const flowUser = {
         name: 'Flow Test User',
         email: `flow-${Date.now()}@example.com`,
@@ -349,18 +488,35 @@ describe('Authentication Integration Tests', () => {
       expect(signupRes.status).toBe(201);
       expect(signupRes.body.success).toBe(true);
 
-      // Step 2: Login before activation (should get waiting-payment)
-      const loginBeforeRes = await request(app)
+      // Step 2: Login before payment (should get waiting-payment)
+      const loginPendingRes = await request(app)
         .post('/api/auth/login')
         .send({
           email: flowUser.email,
           password: flowUser.password
         });
 
-      expect(loginBeforeRes.status).toBe(200);
-      expect(loginBeforeRes.body.redirect).toBe('/waiting-payment');
+      expect(loginPendingRes.status).toBe(200);
+      expect(loginPendingRes.body.redirect).toBe('/waiting-payment');
 
-      // Step 3: Activate
+      // Step 3: Simulate payment webhook from n8n
+      const webhookRes = await simulatePaymentWebhook(flowUser.email, flowPaymentId);
+
+      expect(webhookRes.status).toBe(200);
+      expect(webhookRes.body.success).toBe(true);
+
+      // Step 4: Login after payment (should get activate redirect)
+      const loginPaidRes = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: flowUser.email,
+          password: flowUser.password
+        });
+
+      expect(loginPaidRes.status).toBe(200);
+      expect(loginPaidRes.body.redirect).toBe('/activate');
+
+      // Step 5: Activate with matching Payment ID
       const activateRes = await request(app)
         .post('/api/auth/activate')
         .send({
@@ -372,7 +528,7 @@ describe('Authentication Integration Tests', () => {
       expect(activateRes.body.token).toBeDefined();
       expect(activateRes.body.api_keys).toBeDefined();
 
-      // Step 4: Login after activation (should get dashboard + token)
+      // Step 6: Login after activation (should get dashboard + token)
       const loginAfterRes = await request(app)
         .post('/api/auth/login')
         .send({
@@ -384,7 +540,7 @@ describe('Authentication Integration Tests', () => {
       expect(loginAfterRes.body.redirect).toBe('/dashboard');
       expect(loginAfterRes.body.token).toBeDefined();
 
-      // Step 5: Verify the token
+      // Step 7: Verify the token
       const verifyRes = await request(app)
         .get('/api/auth/verify-token')
         .set('Authorization', `Bearer ${loginAfterRes.body.token}`);
