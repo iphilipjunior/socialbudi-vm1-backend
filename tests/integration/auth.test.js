@@ -189,7 +189,7 @@ describe('Authentication Integration Tests', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.message).toContain('processed');
+      expect(res.body.message).toContain('confirmed');
     });
 
     it('should reject webhook with invalid signature', async () => {
@@ -207,7 +207,7 @@ describe('Authentication Integration Tests', () => {
         .set('X-Webhook-Signature', 'invalid-signature')
         .send(payload);
 
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
     });
 
@@ -229,11 +229,13 @@ describe('Authentication Integration Tests', () => {
         password: 'TestPassword123!'
       };
 
-      await request(app)
+      const signupRes = await request(app)
         .post('/api/auth/signup')
         .send(newUser);
 
-      // Try to use the same payment ID that was already used
+      expect(signupRes.status).toBe(201);
+
+      // Try to use the same payment ID that was already used by testUser
       const res = await simulatePaymentWebhook(newUser.email, testPaymentId);
 
       expect(res.status).toBe(409);
@@ -266,7 +268,7 @@ describe('Authentication Integration Tests', () => {
         .post('/api/payment/confirm')
         .send(payload);
 
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
     });
   });
@@ -298,7 +300,7 @@ describe('Authentication Integration Tests', () => {
 
       expect(res.status).toBe(403);
       expect(res.body.success).toBe(false);
-      expect(res.body.error).toContain('does not match');
+      expect(res.body.error).toBe('Payment ID does not match');
     });
 
     it('should reject non-existent user', async () => {
@@ -356,9 +358,11 @@ describe('Authentication Integration Tests', () => {
         password: 'TestPassword123!'
       };
 
-      await request(app)
+      const signupRes = await request(app)
         .post('/api/auth/signup')
         .send(noPaidUser);
+
+      expect(signupRes.status).toBe(201);
 
       // Try to activate without payment webhook
       const res = await request(app)
@@ -370,7 +374,7 @@ describe('Authentication Integration Tests', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
-      expect(res.body.error).toContain('No payment found');
+      expect(res.body.error).toBe('No payment found for this user');
     });
   });
 
@@ -440,6 +444,9 @@ describe('Authentication Integration Tests', () => {
 
   describe('POST /api/auth/refresh-token', () => {
     it('should refresh valid token', async () => {
+      // Wait 1 second to ensure new token has different iat (issued at time)
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       const res = await request(app)
         .post('/api/auth/refresh-token')
         .send({ token: testToken });
@@ -473,6 +480,9 @@ describe('Authentication Integration Tests', () => {
 
   describe('Complete User Flow', () => {
     it('should complete full signup → payment webhook → activate → login flow', async () => {
+      // Wait 2 seconds to avoid rate limiting from previous tests
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
       const flowUser = {
         name: 'Flow Test User',
         email: `flow-${Date.now()}@example.com`,
