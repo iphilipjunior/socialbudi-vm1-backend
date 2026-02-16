@@ -26,6 +26,7 @@ const signupRateLimiter = rateLimit({
   },
   standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
   legacyHeaders: false, // Disable deprecated `X-RateLimit-*` headers
+  validate: { xForwardedForHeader: false },
   handler: (req, res) => {
     logger.warn('Signup rate limit exceeded', {
       ip: req.ip,
@@ -55,6 +56,7 @@ const loginRateLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   handler: (req, res) => {
     logger.warn('Login rate limit exceeded', {
       ip: req.ip,
@@ -71,18 +73,13 @@ const loginRateLimiter = rateLimit({
 
 /**
  * Rate limiter for activation endpoint
- * Limits to 20 activation attempts per email address per hour
- *
+ * Limits to 20 activation attempts per hour per IP address
+ * 
  * Purpose: Prevent Payment ID guessing attacks
- * Note: Uses email as key instead of IP since user might switch networks
  */
 const activationRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 20,
-  // Use email as the key instead of IP for more accurate limiting
-  keyGenerator: (req) => {
-    return req.body?.email || req.ip;
-  },
   message: {
     success: false,
     error: 'Too many activation attempts',
@@ -90,6 +87,7 @@ const activationRateLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   handler: (req, res) => {
     logger.warn('Activation rate limit exceeded', {
       email: req.body?.email,

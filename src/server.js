@@ -10,6 +10,9 @@ const paymentRoutes = require('./routes/payment');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust proxy - We're behind Nginx
+app.set('trust proxy', 1);
+
 // ─── CORS ────────────────────────────────────────────
 // Allow frontend origin. In production this is the WordPress site.
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'https://contentscrapingserver.site';

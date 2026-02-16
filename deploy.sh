@@ -6,8 +6,8 @@ set -e
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Configuration
-APP_NAME="socialbudi-vm1"
-APP_DIR="/var/www/socialbudi-vm1-backend"
+APP_NAME="socialbudi-backend"
+APP_DIR="/var/www/socialbudi-backend"
 BRANCH="main"
 
 # Color codes for output
