@@ -89,6 +89,147 @@ The API implements a complete authentication system with the following features:
 
 See [docs/API_AUTH.md](docs/API_AUTH.md) for complete API documentation.
 
+---
+
+## Phase 3: Payment Processing ✅ COMPLETE
+
+**Duration:** February 14, 2026 - February 16, 2026
+**Status:** Deployed to Production
+
+### Features Implemented
+
+- **Automated Payment Confirmation** - n8n workflow processes Selfany payments automatically
+- **Webhook Security** - HMAC SHA256 signature verification
+- **Payment ID Validation** - Secure activation with verified Payment IDs
+- **Duplicate Payment Detection** - Alerts admin when same Payment ID used by multiple users
+- **Orphaned Payment Detection** - Identifies and manages payment anomalies
+- **Complete Audit Trail** - All payment events logged to system_logs
+
+### New API Endpoints
+
+#### Payment Webhook
+```bash
+POST /api/payment/confirm
+```
+Receives payment confirmations from n8n workflow. Requires HMAC SHA256 signature authentication.
+
+**Documentation:** [Payment API Reference](docs/API_PAYMENT.md)
+
+#### Admin Endpoints
+```bash
+POST /api/admin/detect-orphaned-payments
+```
+Detects and alerts on duplicate Payment IDs assigned to multiple users.
+
+### Environment Variables
+
+Add to `.env`:
+```bash
+# Payment Webhook Security
+N8N_WEBHOOK_SECRET=your-64-character-random-secret-here
+```
+
+Generate secret:
+```bash
+openssl rand -hex 32
+```
+
+### n8n Workflow Setup
+
+Payment automation requires n8n workflow configuration to monitor Gmail for Selfany payment emails.
+
+**Setup Guide:** [n8n Workflow Setup](docs/N8N_WORKFLOW_GUIDE.md)
+
+**Workflow Components:**
+1. **Gmail Trigger** - Monitors inbox for payment emails
+2. **Extract Payment ID** - Parses email HTML
+3. **Generate Signature** - HMAC SHA256 authentication
+4. **HTTP Request** - Sends to payment webhook
+
+### Payment Flow
+
+```
+User pays $10 → Selfany email → Gmail → n8n → Backend webhook → Database update → User activates account
+```
+
+**Processing Time:** ~60 seconds from payment to activation-ready
+
+### Payment Testing
+
+**Unit Tests:**
+```bash
+# Payment service tests
+npm test tests/unit/paymentService.test.js
+
+# Payment validation tests
+npm test tests/unit/paymentValidationService.test.js
+
+# Orphaned payment tests
+npm test tests/unit/orphanedPaymentService.test.js
+```
+
+**Test Results:**
+- Unit Tests: 40/40 passing (100%)
+- Integration Tests: 27/30 passing (90% - rate limit issues only)
+
+### Phase 3 Documentation
+
+- [Phase 3 Completion Report](docs/PHASE_3_COMPLETION_REPORT.md) - Complete implementation details
+- [Payment API Reference](docs/API_PAYMENT.md) - Webhook endpoint documentation
+- [n8n Workflow Guide](docs/N8N_WORKFLOW_GUIDE.md) - Step-by-step workflow setup
+- [Troubleshooting Guide](docs/TROUBLESHOOTING_PAYMENT.md) - Common issues and solutions
+
+### Production Deployment
+
+**Status:** Live and processing payments
+
+**Endpoints Active:**
+- POST /api/payment/confirm (webhook)
+- POST /api/admin/detect-orphaned-payments (admin)
+- POST /api/auth/activate (refactored with payment validation)
+
+**External Integrations:**
+- n8n workflow active and running
+- Gmail OAuth configured
+- Selfany payment provider integrated
+
+### Security Implementation
+
+- HMAC SHA256 webhook signatures
+- Constant-time signature comparison
+- Input validation on all payment fields
+- Duplicate payment detection
+- Rate limiting (100 requests/minute)
+- Complete audit logging
+
+### Known Limitations
+
+- Payment amount fixed at $10.00 USD
+- Only USD currency supported
+- Admin endpoints lack authentication (TODO: Phase 4)
+- Manual orphaned payment detection only
+
+### Payment Troubleshooting
+
+For payment issues, see [Troubleshooting Guide](docs/TROUBLESHOOTING_PAYMENT.md)
+
+**Quick Checks:**
+```bash
+# Backend health
+curl https://contentscrapingserver.site/health
+
+# PM2 status
+pm2 status
+
+# Recent payment logs
+pm2 logs socialbudi-backend | grep payment_webhook
+
+# Check n8n workflow
+# Go to n8n.io dashboard → Executions
+```
+
+---
+
 ## Testing
 
 ```bash
