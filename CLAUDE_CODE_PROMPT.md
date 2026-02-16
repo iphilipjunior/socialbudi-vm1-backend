@@ -9,24 +9,29 @@ Refer to the implementation documentation in project sources titled:
 ## Phase Status
 - ✅ Phase 1: Foundation & Database Setup - COMPLETED
 - ✅ Phase 2: Authentication Backend - COMPLETED
-- 🔄 Phase 3: Payment Backend & n8n Workflow - IN PROGRESS
+- ✅ Phase 3: Payment Backend & n8n Workflow - COMPLETED
+- 🔄 Phase 4: User Management Backend + Cookie Extractor - IN PROGRESS
 
-## Current Phase: Phase 3
-You are now implementing the payment verification system that converts signups into paying customers.
+## Current Phase: Phase 4
+You are now implementing the user management backend and cookie extractor Chrome extension.
 
-**Phase 3 Objectives:**
-- Create payment confirmation webhook endpoint (POST /api/payment/confirm)
-- Integrate with n8n workflow for Selfany payment processing
-- Implement Payment ID validation for account activation
-- Add orphaned payment detection system
-- Ensure only paid users can activate accounts
+**Phase 4 Objectives:**
+- Create user profile management endpoints (GET/PUT /api/user/profile)
+- Implement password change endpoint (PUT /api/user/change-password)
+- Create LinkedIn cookie storage endpoint (POST /api/user/cookie)
+- Implement API key generation and retrieval (GET /api/user/api-keys)
+- Build Cookie Extractor Chrome Extension (separate repository)
+- Enable users to manage their accounts and access scraping credentials
 
-**Critical Rules for Phase 3:**
-- Do NOT modify Phase 1 or Phase 2 code unless explicitly instructed
-- Run all Phase 2 tests after making changes to ensure no regression
-- Payment webhook must verify signature using N8N_WEBHOOK_SECRET
-- Payment IDs must be unique and match user email
-- All payment transactions must be logged to system_logs
+**Critical Rules for Phase 4:**
+- Do NOT modify Phase 1-3 code unless explicitly instructed
+- Run all Phase 1-3 tests after making changes to ensure no regression
+- All user endpoints must require valid JWT authentication
+- Passwords must NEVER be logged (plain or hashed)
+- API keys must be generated with crypto.randomBytes (64-char hex)
+- LinkedIn cookies stored in plain text (required for scraping)
+- Email updates must enforce uniqueness constraint
+- All user actions must be logged to system_logs
 
 ## Your Role
 - Write production-ready code following these specifications
@@ -121,6 +126,28 @@ You are now implementing the payment verification system that converts signups i
 - **duplicate_payments:** Store duplicate/orphaned payment records
 - **system_logs:** Log all payment transactions
 - **admin_alerts:** Alert admins about payment issues
+
+### Phase 4 Database Fields (Now Active)
+
+**Users Table - Phase 4 Fields:**
+- `linkedin_cookie` (text, nullable) - User's li_at cookie from LinkedIn
+- `linkedin_user_agent` (text, nullable) - Browser user agent for scraping
+- `cookie_updated_at` (timestamptz, nullable) - When cookie was last updated
+
+**API Keys Table - Phase 4 Usage:**
+- `api_key` (text, unique) - 64-character random hex string
+- `service` (text) - One of: 'linkedin', 'ytdlp', 'instagram', 'enrichment', 'all'
+- `key_name` (text) - Display name for the key
+- `is_active` (boolean, default true) - Whether key is currently valid
+- `last_used_at` (timestamptz, nullable) - Last time key was used for authentication
+- `expires_at` (timestamptz, nullable) - Future: key expiration feature
+
+**API Key Generation Rules:**
+- Generate during user activation if keys don't exist
+- Create exactly 5 keys per user (one per service)
+- Format: `crypto.randomBytes(32).toString('hex')` (64-char hex string)
+- Store in plain text (the keys themselves are the secret)
+- Each key must be unique across entire database
 
 ## Coding Standards
 
