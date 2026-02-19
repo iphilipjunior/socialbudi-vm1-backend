@@ -117,57 +117,124 @@ const activationValidation = validate([
 // ============================================================================
 
 /**
+ * Middleware to handle validation errors from express-validator chains.
+ * Used as the last element in Phase 4 validation arrays.
+ *
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next middleware
+ */
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: errors.array().map(err => ({
+        field: err.path,
+        message: err.msg
+      }))
+    });
+  }
+  next();
+};
+
+/**
  * Profile update validation rules
  *
  * Validates:
- * - name: optional, 2-100 chars, letters/spaces/hyphens/apostrophes only
+ * - full_name: optional, 2-100 chars, letters/spaces/hyphens/apostrophes only
+ * - email: optional, valid email format, normalized
+ * - At least one field must be provided
  */
-const validateProfileUpdate = validate([
-  body('name')
+const validateProfileUpdate = [
+  body('full_name')
     .optional()
     .trim()
     .isLength({ min: 2, max: 100 })
-    .withMessage('Name must be between 2 and 100 characters')
-    .matches(/^[a-zA-Z\s'-]+$/)
-    .withMessage('Name can only contain letters, spaces, hyphens and apostrophes')
-]);
+    .withMessage('Full name must be between 2 and 100 characters')
+    .matches(/^[a-zA-Z\s\-']+$/)
+    .withMessage('Full name can only contain letters, spaces, hyphens, and apostrophes'),
+
+  body('email')
+    .optional()
+    .isEmail()
+    .withMessage('Invalid email format')
+    .normalizeEmail()
+    .toLowerCase(),
+
+  // Custom validator: at least one field required
+  body()
+    .custom((value, { req }) => {
+      if (!req.body.full_name && !req.body.email) {
+        throw new Error('At least one field (full_name or email) must be provided');
+      }
+      return true;
+    }),
+
+  handleValidationErrors
+];
 
 /**
  * Password change validation rules
  *
  * Validates:
- * - current_password: required, not empty
- * - new_password: 8-128 chars, must have uppercase, lowercase, number, no spaces
+ * - current_password: required, string
+ * - new_password: required, minimum 8 characters
+ * - confirm_password: required, must match new_password
  */
-const validatePasswordChange = validate([
+const validatePasswordChange = [
   body('current_password')
-    .notEmpty()
-    .withMessage('Current password is required'),
+    .exists()
+    .withMessage('Current password is required')
+    .isString()
+    .withMessage('Current password must be a string'),
 
   body('new_password')
-    .isLength({ min: 8, max: 128 })
-    .withMessage('New password must be between 8 and 128 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('New password must contain at least one uppercase letter, one lowercase letter, and one number')
-    .not()
-    .matches(/\s/)
-    .withMessage('New password cannot contain spaces')
-]);
+    .exists()
+    .withMessage('New password is required')
+    .isLength({ min: 8 })
+    .withMessage('New password must be at least 8 characters long'),
+
+  body('confirm_password')
+    .exists()
+    .withMessage('Confirm password is required')
+    .custom((value, { req }) => {
+      if (value !== req.body.new_password) {
+        throw new Error('New password and confirm password do not match');
+      }
+      return true;
+    }),
+
+  handleValidationErrors
+];
 
 /**
  * Cookie storage validation rules
  *
  * Validates:
- * - linkedin_cookie: required, non-empty string, max 10000 chars
+ * - linkedin_cookie: required, string, minimum 50 characters
+ * - user_agent: required, string, must contain "Mozilla"
  */
-const validateCookieStorage = validate([
+const validateCookieStorage = [
   body('linkedin_cookie')
-    .trim()
-    .notEmpty()
+    .exists()
     .withMessage('LinkedIn cookie is required')
-    .isLength({ max: 10000 })
-    .withMessage('LinkedIn cookie must not exceed 10000 characters')
-]);
+    .isString()
+    .withMessage('LinkedIn cookie must be a string')
+    .isLength({ min: 50 })
+    .withMessage('LinkedIn cookie must be at least 50 characters'),
+
+  body('user_agent')
+    .exists()
+    .withMessage('User agent is required')
+    .isString()
+    .withMessage('User agent must be a string')
+    .contains('Mozilla')
+    .withMessage('Invalid user agent format'),
+
+  handleValidationErrors
+];
 
 module.exports = {
   signupValidation,
