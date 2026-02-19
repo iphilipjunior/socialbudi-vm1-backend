@@ -107,18 +107,18 @@ const activationRateLimiter = rateLimit({
 // ============================================================================
 
 /**
- * Rate limiter for user profile endpoints
- * Limits to 30 requests per minute per user
+ * Rate limiter for user profile endpoints (GET/PUT /api/user/profile, GET /api/user/api-keys)
+ * Limits to 60 requests per hour per IP
  *
  * Purpose: Prevent API abuse on profile read/update operations
  */
 const userProfileRateLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 30,
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 60, // 60 requests per hour
   message: {
     success: false,
-    error: 'Too many requests',
-    message: 'Too many profile requests. Please try again in 1 minute.'
+    error: 'Too many profile requests',
+    message: 'Too many profile requests, please try again later'
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -131,25 +131,25 @@ const userProfileRateLimiter = rateLimit({
     });
     res.status(429).json({
       success: false,
-      error: 'Too many requests',
-      message: 'Too many profile requests. Please try again in 1 minute.'
+      error: 'Too many profile requests',
+      message: 'Too many profile requests, please try again later'
     });
   }
 });
 
 /**
- * Rate limiter for password change endpoint
- * Limits to 5 attempts per hour per user
+ * Rate limiter for password change endpoint (PUT /api/user/change-password)
+ * Limits to 5 requests per hour per IP (STRICT)
  *
  * Purpose: Prevent password brute force and abuse
  */
 const passwordChangeRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5,
+  max: 5, // 5 requests per hour (STRICT)
   message: {
     success: false,
     error: 'Too many password change attempts',
-    message: 'Too many password change attempts. Please try again in 1 hour.'
+    message: 'Too many password change attempts, please try again later'
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -163,24 +163,24 @@ const passwordChangeRateLimiter = rateLimit({
     res.status(429).json({
       success: false,
       error: 'Too many password change attempts',
-      message: 'Too many password change attempts. Please try again in 1 hour.'
+      message: 'Too many password change attempts, please try again later'
     });
   }
 });
 
 /**
- * Rate limiter for cookie storage endpoint
- * Limits to 10 requests per minute per user
+ * Rate limiter for cookie storage endpoint (POST /api/user/cookie)
+ * Limits to 10 requests per hour per IP
  *
  * Purpose: Prevent cookie flooding attacks
  */
 const cookieStorageRateLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 10,
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // 10 requests per hour
   message: {
     success: false,
     error: 'Too many cookie storage requests',
-    message: 'Too many cookie storage requests. Please try again in 1 minute.'
+    message: 'Too many cookie storage requests, please try again later'
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -194,7 +194,7 @@ const cookieStorageRateLimiter = rateLimit({
     res.status(429).json({
       success: false,
       error: 'Too many cookie storage requests',
-      message: 'Too many cookie storage requests. Please try again in 1 minute.'
+      message: 'Too many cookie storage requests, please try again later'
     });
   }
 });
