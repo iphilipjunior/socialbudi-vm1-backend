@@ -8,14 +8,17 @@
  */
 
 const logger = require('../utils/logger');
+const userService = require('../services/userService');
+const apiKeyService = require('../services/apiKeyService');
 
 /**
  * Get user profile
  *
  * Returns the current user's profile information including:
- * - Basic info (name, email)
- * - Account status
- * - Subscription details
+ * - Basic info (full_name, email)
+ * - Account status (payment_status, activated)
+ * - LinkedIn cookie status
+ * - Timestamps
  *
  * @route GET /api/user/profile
  * @param {Object} req - Express request object
@@ -25,16 +28,14 @@ const logger = require('../utils/logger');
  */
 const getProfile = async (req, res) => {
   try {
-    // TODO: Phase 4 Implementation
-    // 1. Fetch full user data from database using req.user.id
-    // 2. Return profile information (excluding sensitive data like password_hash)
+    const userId = req.user.id;
 
-    logger.info('Get profile requested', { userId: req.user.id });
+    // Call service to get user profile
+    const profile = await userService.getUserById(userId);
 
-    res.status(501).json({
-      success: false,
-      error: 'Not implemented',
-      message: 'This endpoint will be implemented in Phase 4'
+    res.status(200).json({
+      success: true,
+      user: profile
     });
   } catch (error) {
     logger.error('Get profile error', {
@@ -53,39 +54,56 @@ const getProfile = async (req, res) => {
  * Update user profile
  *
  * Updates the current user's profile information.
- * Currently supports updating: name
+ * Supports updating: full_name, email
  *
  * @route PUT /api/user/profile
  * @param {Object} req - Express request object
  * @param {Object} req.user - Authenticated user from JWT
  * @param {Object} req.body - Profile update data
- * @param {string} [req.body.name] - Updated name
+ * @param {string} [req.body.full_name] - Updated full name
+ * @param {string} [req.body.email] - Updated email
  * @param {Object} res - Express response object
  * @returns {Object} Updated user profile
  */
 const updateProfile = async (req, res) => {
   try {
-    const { name } = req.body;
+    const userId = req.user.id;
+    const { full_name, email } = req.body;
 
-    // TODO: Phase 4 Implementation
-    // 1. Update user record in database
-    // 2. Return updated profile
+    // Build updates object
+    const updates = {};
+    if (full_name) updates.full_name = full_name;
+    if (email) updates.email = email;
 
-    logger.info('Update profile requested', {
-      userId: req.user.id,
-      updates: { name: !!name }
-    });
+    // Call service to update profile
+    const updatedProfile = await userService.updateUserProfile(userId, updates);
 
-    res.status(501).json({
-      success: false,
-      error: 'Not implemented',
-      message: 'This endpoint will be implemented in Phase 4'
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: updatedProfile
     });
   } catch (error) {
     logger.error('Update profile error', {
       userId: req.user?.id,
       error: error.message
     });
+
+    // Handle specific errors
+    if (error.message === 'Email already in use by another account') {
+      return res.status(409).json({
+        success: false,
+        error: 'Email already in use by another account'
+      });
+    }
+
+    if (error.message === 'At least one field (full_name or email) must be provided') {
+      return res.status(400).json({
+        success: false,
+        error: 'At least one field (full_name or email) must be provided'
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -111,27 +129,37 @@ const updateProfile = async (req, res) => {
  */
 const changePassword = async (req, res) => {
   try {
+    const userId = req.user.id;
     const { current_password, new_password } = req.body;
 
-    // TODO: Phase 4 Implementation
-    // 1. Fetch user's current password_hash from database
-    // 2. Verify current_password matches using bcrypt.compare
-    // 3. Hash new_password using bcrypt
-    // 4. Update password_hash in database
-    // 5. Optionally invalidate other sessions
+    // Call service to change password
+    await userService.changeUserPassword(userId, current_password, new_password);
 
-    logger.info('Password change requested', { userId: req.user.id });
-
-    res.status(501).json({
-      success: false,
-      error: 'Not implemented',
-      message: 'This endpoint will be implemented in Phase 4'
+    res.status(200).json({
+      success: true,
+      message: 'Password changed successfully'
     });
   } catch (error) {
     logger.error('Password change error', {
       userId: req.user?.id,
       error: error.message
     });
+
+    // Handle specific errors
+    if (error.message === 'Current password is incorrect') {
+      return res.status(401).json({
+        success: false,
+        error: 'Current password is incorrect'
+      });
+    }
+
+    if (error.message === 'New password must be different from current password') {
+      return res.status(400).json({
+        success: false,
+        error: 'New password must be different from current password'
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -143,36 +171,30 @@ const changePassword = async (req, res) => {
 /**
  * Store LinkedIn cookie
  *
- * Stores encrypted LinkedIn authentication cookie for automation.
- * Cookie is encrypted before storage for security.
+ * Stores LinkedIn authentication cookie and user agent for scraping.
+ * Cookie is stored in plain text (required for scraping functionality).
  *
  * @route POST /api/user/cookie
  * @param {Object} req - Express request object
  * @param {Object} req.user - Authenticated user from JWT
  * @param {Object} req.body - Cookie data
  * @param {string} req.body.linkedin_cookie - LinkedIn li_at cookie value
+ * @param {string} req.body.user_agent - Browser user agent string
  * @param {Object} res - Express response object
- * @returns {Object} Success message with cookie status
+ * @returns {Object} Success message with cookie_updated_at timestamp
  */
 const storeCookie = async (req, res) => {
   try {
-    const { linkedin_cookie } = req.body;
+    const userId = req.user.id;
+    const { linkedin_cookie, user_agent } = req.body;
 
-    // TODO: Phase 4 Implementation
-    // 1. Encrypt cookie using AES-256-GCM
-    // 2. Store encrypted cookie in database (linkedin_cookie field)
-    // 3. Update cookie_stored_at timestamp
-    // 4. Validate cookie format (optional)
+    // Call service to store cookie
+    const result = await userService.storeLinkedInCookie(userId, linkedin_cookie, user_agent);
 
-    logger.info('Cookie storage requested', {
-      userId: req.user.id,
-      cookieLength: linkedin_cookie?.length
-    });
-
-    res.status(501).json({
-      success: false,
-      error: 'Not implemented',
-      message: 'This endpoint will be implemented in Phase 4'
+    res.status(200).json({
+      success: true,
+      message: 'LinkedIn cookie stored successfully',
+      cookie_updated_at: result.cookie_updated_at
     });
   } catch (error) {
     logger.error('Cookie storage error', {
@@ -190,35 +212,38 @@ const storeCookie = async (req, res) => {
 /**
  * Get API keys
  *
- * Returns the user's API keys for extension authentication.
- * Generates new keys if none exist.
+ * Returns all API keys for the authenticated user.
+ * Keys are generated during account activation.
  *
  * @route GET /api/user/api-keys
  * @param {Object} req - Express request object
  * @param {Object} req.user - Authenticated user from JWT
  * @param {Object} res - Express response object
- * @returns {Object} API keys (api_key, api_secret - masked or full based on context)
+ * @returns {Object} API keys array with service details
  */
 const getAPIKeys = async (req, res) => {
   try {
-    // TODO: Phase 4 Implementation
-    // 1. Check if user has existing API keys
-    // 2. If not, generate new keys using crypto.randomBytes
-    // 3. Store keys in database (api_key, api_secret fields)
-    // 4. Return keys (consider showing secret only once)
+    const userId = req.user.id;
 
-    logger.info('API keys requested', { userId: req.user.id });
+    // Call service to get API keys
+    const result = await apiKeyService.getAPIKeys(userId);
 
-    res.status(501).json({
-      success: false,
-      error: 'Not implemented',
-      message: 'This endpoint will be implemented in Phase 4'
-    });
+    res.status(200).json(result);
   } catch (error) {
     logger.error('Get API keys error', {
       userId: req.user?.id,
       error: error.message
     });
+
+    // Handle specific errors
+    if (error.message === 'No API keys found. Keys should have been generated during activation.') {
+      return res.status(404).json({
+        success: false,
+        error: 'No API keys found',
+        message: 'API keys should have been generated during activation. Please contact support.'
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: 'Internal server error',
