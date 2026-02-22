@@ -194,7 +194,9 @@ const validatePasswordChange = [
     .exists()
     .withMessage('New password is required')
     .isLength({ min: 8 })
-    .withMessage('New password must be at least 8 characters long'),
+    .withMessage('New password must be at least 8 characters long')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('New password must contain at least one uppercase letter, one lowercase letter, and one number'),
 
   body('confirm_password')
     .exists()
