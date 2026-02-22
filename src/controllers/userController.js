@@ -141,7 +141,7 @@ const changePassword = async (req, res) => {
     });
   } catch (error) {
     logger.error('Password change error', {
-      userId: req.user?.id,
+      userId: req.user?.user_id,
       error: error.message
     });
 
@@ -198,7 +198,7 @@ const storeCookie = async (req, res) => {
     });
   } catch (error) {
     logger.error('Cookie storage error', {
-      userId: req.user?.id,
+      userId: req.user?.user_id,
       error: error.message
     });
     res.status(500).json({
@@ -231,7 +231,7 @@ const getAPIKeys = async (req, res) => {
     res.status(200).json(result);
   } catch (error) {
     logger.error('Get API keys error', {
-      userId: req.user?.id,
+      userId: req.user?.user_id,
       error: error.message
     });
 
