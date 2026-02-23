@@ -10,28 +10,124 @@ Refer to the implementation documentation in project sources titled:
 - ✅ Phase 1: Foundation & Database Setup - COMPLETED
 - ✅ Phase 2: Authentication Backend - COMPLETED
 - ✅ Phase 3: Payment Backend & n8n Workflow - COMPLETED
-- 🔄 Phase 4: User Management Backend + Cookie Extractor - IN PROGRESS
+- ✅ Phase 4: User Management Backend + Cookie Extractor - COMPLETED
+- 🔄 Phase 5: Admin Backend - IN PROGRESS
 
-## Current Phase: Phase 4
-You are now implementing the user management backend and cookie extractor Chrome extension.
+## Phase 5: Admin Backend (CURRENT)
 
-**Phase 4 Objectives:**
-- Create user profile management endpoints (GET/PUT /api/user/profile)
-- Implement password change endpoint (PUT /api/user/change-password)
-- Create LinkedIn cookie storage endpoint (POST /api/user/cookie)
-- Implement API key generation and retrieval (GET /api/user/api-keys)
-- Build Cookie Extractor Chrome Extension (separate repository)
-- Enable users to manage their accounts and access scraping credentials
+**Status:** IN PROGRESS
+**Repository:** socialbudi-vm1-backend
+**Depends on:** Phases 1-4 (all complete)
 
-**Critical Rules for Phase 4:**
-- Do NOT modify Phase 1-3 code unless explicitly instructed
-- Run all Phase 1-3 tests after making changes to ensure no regression
-- All user endpoints must require valid JWT authentication
-- Passwords must NEVER be logged (plain or hashed)
-- API keys must be generated with crypto.randomBytes (64-char hex)
-- LinkedIn cookies stored in plain text (required for scraping)
-- Email updates must enforce uniqueness constraint
-- All user actions must be logged to system_logs
+### Purpose
+Build the complete admin control panel backend. Admins can log in with a separate JWT, manage users, view/resolve payments, handle orphaned payments, resolve alerts, and view system logs.
+
+### Critical Rules for Phase 5
+- Admin JWT uses ADMIN_JWT_SECRET env var (NOT JWT_SECRET — these must be separate)
+- Admin JWT payload: { admin_id, email, role }
+- User JWT payload uses user_id — adminAuth.js middleware must REJECT tokens where payload.user_id exists (not admin tokens)
+- admin_users table uses admin_id as primary key (NOT id)
+- All admin actions must be logged to system_logs table
+- Rate limit: 5 req/min on login, 60 req/hour on all other admin endpoints
+- NEVER log passwords, JWT tokens, or sensitive user data
+
+### Database Schema Reference
+
+**admin_users table:**
+- admin_id (UUID, primary key)
+- email (TEXT, unique)
+- password_hash (TEXT)
+- name (TEXT)
+- role (TEXT) — 'admin' or 'superadmin'
+- is_active (BOOLEAN)
+- last_login (TIMESTAMP)
+- created_by (UUID, FK to admin_users.admin_id)
+- created_at (TIMESTAMP)
+- updated_at (TIMESTAMP)
+- permissions (JSONB)
+
+**admin_alerts table:**
+- alert_id (UUID, primary key)
+- alert_type (TEXT) — 'orphaned_payment', 'duplicate_payment', 'new_signup', 'system_error'
+- severity (TEXT) — 'info', 'warning', 'error'
+- title (TEXT)
+- description (TEXT)
+- metadata (JSONB)
+- status (TEXT) — 'unresolved' or 'resolved'
+- resolved_by (UUID, FK to admin_users.admin_id)
+- resolved_at (TIMESTAMP)
+- created_at (TIMESTAMP)
+
+**system_logs table (reminder of actual column names):**
+- id (UUID, primary key)
+- log_level (NOT log_type)
+- service (TEXT)
+- action (NOT details)
+- message (TEXT)
+- user_id (UUID, nullable)
+- admin_id (UUID, nullable)
+- ip_address (TEXT)
+- user_agent (TEXT)
+- request_data (JSONB)
+- response_data (JSONB)
+- error_stack (TEXT)
+- created_at (TIMESTAMP)
+
+**users table reminders:**
+- id (NOT user_id) — primary key
+- full_name (NOT name)
+- Map in responses: id → user_id, full_name → name
+
+### Endpoints to Build (10 total + 1 admin login)
+- POST /api/admin/login
+- GET /api/admin/users
+- GET /api/admin/users/:id
+- POST /api/admin/users/:id/activate
+- GET /api/admin/payments
+- GET /api/admin/payments/:id
+- GET /api/admin/orphaned-payments
+- POST /api/admin/link-payment
+- GET /api/admin/alerts
+- POST /api/admin/alerts/:id/resolve
+- GET /api/admin/logs
+
+### Files to Create (Phase 5)
+- src/routes/admin.js
+- src/controllers/adminController.js
+- src/services/adminService.js
+- src/services/adminJwtService.js
+- src/middleware/adminAuth.js
+- tests/unit/adminService.test.js
+- tests/unit/adminJwtService.test.js
+- tests/integration/admin.test.js
+- docs/API_ADMIN.md
+- docs/PHASE_5_COMPLETION_REPORT.md (written at end)
+
+### Files to Modify (Phase 5)
+- src/server.js — register /api/admin routes
+- src/middleware/validation.js — add admin validators
+- src/middleware/rateLimiter.js — add admin rate limiters
+- .env.example — add ADMIN_JWT_SECRET entry
+- README.md — update with Phase 5 info
+
+### Files to NOT Modify
+- src/routes/auth.js, user.js, payment.js, health.js
+- src/controllers/authController.js, userController.js, paymentController.js
+- src/services/authService.js, userService.js, apiKeyService.js, paymentService.js
+- src/middleware/auth.js (user JWT middleware — keep completely separate)
+
+---
+
+## Phase 4: User Management Backend (COMPLETED)
+
+Phase 4 delivered:
+- 5 user management endpoints (GET/PUT profile, change-password, cookie, api-keys)
+- Chrome extension for LinkedIn cookie extraction (separate repository)
+- 88 unit tests passing
+- Security audit completed (A rating)
+- Full documentation in docs/API_USER_MANAGEMENT.md and docs/PHASE_4_COMPLETION_REPORT.md
+
+---
 
 ## Your Role
 - Write production-ready code following these specifications
