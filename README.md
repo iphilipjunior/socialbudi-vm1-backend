@@ -27,10 +27,11 @@ Lead Generation Platform - Backend API Server
 | `PORT` | Server port (default: 3000) | No |
 | `NODE_ENV` | Environment (development/production) | No |
 | `SUPABASE_URL` | Supabase project URL | Yes |
-| `SUPABASE_KEY` | Supabase anon/service key | Yes |
-| `JWT_SECRET` | Secret key for JWT signing | Yes |
-| `JWT_EXPIRES_IN` | Token expiration (default: 24h) | No |
-| `CORS_ORIGIN` | Allowed CORS origin | No |
+| `SUPABASE_SERVICE_KEY` | Supabase service role key | Yes |
+| `JWT_SECRET` | Secret key for JWT signing (44+ characters recommended) | Yes |
+| `JWT_EXPIRES_IN` | JWT token expiration (default: 7d) | No |
+| `CORS_ORIGIN` | Allowed CORS origin (required in production) | Yes (prod) |
+| `N8N_WEBHOOK_SECRET` | HMAC secret for payment webhooks | Yes |
 
 ## Project Structure
 ```
@@ -41,16 +42,26 @@ socialbudi-backend/
 │   │   └── supabase.js     # Supabase client
 │   ├── routes/             # API route definitions
 │   │   ├── health.js       # Health check endpoint
-│   │   └── auth.js         # Authentication routes
+│   │   ├── auth.js         # Authentication routes
+│   │   ├── user.js         # User management routes (Phase 4)
+│   │   ├── payment.js      # Payment webhook routes (Phase 3)
+│   │   └── admin.js        # Admin routes (Phase 3)
 │   ├── controllers/        # Request handlers
-│   │   └── authController.js
+│   │   ├── authController.js
+│   │   ├── userController.js   # User management (Phase 4)
+│   │   ├── paymentController.js
+│   │   └── adminController.js
 │   ├── middleware/         # Custom middleware
 │   │   ├── authMiddleware.js   # JWT verification
 │   │   ├── validation.js       # Input validation
 │   │   ├── rateLimiter.js      # Rate limiting
 │   │   └── errorHandler.js     # Global error handler
 │   ├── services/           # Business logic
-│   │   └── jwtService.js   # JWT operations
+│   │   ├── jwtService.js       # JWT operations
+│   │   ├── userService.js      # User profile/password (Phase 4)
+│   │   ├── apiKeyService.js    # API key management (Phase 4)
+│   │   ├── paymentService.js   # Payment processing
+│   │   └── paymentValidationService.js
 │   └── utils/              # Utility functions
 │       ├── logger.js       # Winston logger
 │       └── passwordUtils.js # Password hashing
@@ -58,7 +69,10 @@ socialbudi-backend/
 │   ├── unit/               # Unit tests
 │   └── integration/        # Integration tests
 ├── docs/
-│   └── API_AUTH.md         # Authentication API docs
+│   ├── API_AUTH.md         # Authentication API docs
+│   ├── API_USER_MANAGEMENT.md  # User management API docs (Phase 4)
+│   ├── API_PAYMENT.md      # Payment API docs
+│   └── PHASE_4_COMPLETION_REPORT.md
 ├── .env                    # Environment variables (not committed)
 ├── .gitignore              # Git ignore rules
 ├── jest.config.js          # Jest test configuration
@@ -67,7 +81,7 @@ socialbudi-backend/
 
 ## Authentication
 
-The API implements a complete authentication system with the following features:
+The backend provides 10 API endpoints (5 authentication + 5 user management). The authentication system includes the following features:
 
 - **User Registration** - Signup with email/password
 - **JWT Authentication** - Secure token-based auth (24h expiry)
@@ -88,6 +102,86 @@ The API implements a complete authentication system with the following features:
 | POST | `/api/auth/refresh-token` | Refresh expired token |
 
 See [docs/API_AUTH.md](docs/API_AUTH.md) for complete API documentation.
+
+## User Management
+
+The API provides comprehensive user management features for authenticated users:
+
+- **Profile Management** - View and update user profile information
+- **Password Management** - Secure password changes with current password verification
+- **Cookie Storage** - Store LinkedIn cookies for scraping operations
+- **API Key Retrieval** - Access all generated API keys (5 per user)
+- **Rate Limiting** - Protection against abuse on all endpoints
+- **Input Validation** - Comprehensive validation on all user inputs
+
+### User Management Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| GET | `/api/user/profile` | Get current user profile | Yes (JWT) |
+| PUT | `/api/user/profile` | Update user profile (name/email) | Yes (JWT) |
+| PUT | `/api/user/change-password` | Change password securely | Yes (JWT) |
+| POST | `/api/user/cookie` | Store LinkedIn cookie for scraping | Yes (JWT) |
+| GET | `/api/user/api-keys` | Get all API keys (5 per user) | Yes (JWT) |
+
+See [docs/API_USER_MANAGEMENT.md](docs/API_USER_MANAGEMENT.md) for complete API documentation.
+
+## Security
+
+The backend has undergone comprehensive security auditing and implements industry-standard security practices.
+
+### Security Features
+
+- **Helmet.js** - XSS, clickjacking, and MIME sniffing protection
+- **Environment Validation** - Required variables validated on startup
+- **CORS Configuration** - Explicit origin whitelisting (no defaults in production)
+- **Password Complexity** - Enforced on both signup and password changes
+- **Rate Limiting** - Applied to all authentication and user endpoints
+- **Input Validation** - Comprehensive validation using express-validator
+- **JWT Security** - HS256 algorithm, 7-day expiration, secret from ENV
+- **Bcrypt Hashing** - 10 rounds for all passwords
+- **No Sensitive Logging** - Passwords, tokens, and cookies never logged
+- **Trust Proxy** - Properly configured for Nginx reverse proxy
+
+### Security Audit
+
+**Latest Audit:** February 22, 2026
+**Files Audited:** 8
+**Issues Found:** 5
+**Issues Resolved:** 5
+**Security Rating:** **A (Excellent)**
+
+All identified security vulnerabilities have been resolved. The backend implements:
+- Helmet.js security headers
+- Environment variable validation on startup
+- CORS origin validation (no production defaults)
+- Password complexity requirements (uppercase, lowercase, number)
+- Consistent field naming across controllers
+
+See `docs/PHASE_4_COMPLETION_REPORT.md` for complete security audit details.
+
+---
+
+## Project Status
+
+| Phase | Name | Status |
+|-------|------|--------|
+| Phase 1 | Foundation & Database | Complete |
+| Phase 2 | Authentication Backend | Complete |
+| Phase 3 | Payment Integration | Complete |
+| Phase 4 | User Management + Chrome Extension | Complete |
+| Phase 5 | Admin Backend | Planned |
+
+### Chrome Extension
+
+Phase 4 also delivered a Chrome extension for LinkedIn cookie extraction:
+
+- **Repository:** https://github.com/iphilipjunior/socialbudi-cookie-extractor
+- **Distribution:** Google Drive (unpacked extension)
+- **Features:** Auto-extraction, copy to clipboard, dashboard integration
+- **Download:** [Extension ZIP](https://drive.google.com/file/d/1vei0oUjmbP_4PkBH9WQ4uaUxx7fBnbqQ/view?usp=drive_link)
+
+See the extension repository for installation and usage instructions.
 
 ---
 
@@ -362,6 +456,9 @@ The script handles:
 ## API Documentation
 
 - [Authentication API](docs/API_AUTH.md) - Complete auth endpoint documentation
+- [User Management API](docs/API_USER_MANAGEMENT.md) - User profile and settings documentation
+- [Payment API](docs/API_PAYMENT.md) - Payment webhook documentation
+- [Phase 4 Completion Report](docs/PHASE_4_COMPLETION_REPORT.md) - Phase 4 implementation details
 
 ## License
 MIT
