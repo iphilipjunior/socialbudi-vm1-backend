@@ -238,6 +238,30 @@ const validateCookieStorage = [
   handleValidationErrors
 ];
 
+// ============================================================================
+// Phase 5: Admin Validators
+// ============================================================================
+
+/**
+ * Admin login validation rules
+ *
+ * Validates:
+ * - email: valid email format, normalized
+ * - password: non-empty
+ */
+const adminLoginValidator = [
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Valid email required'),
+
+  body('password')
+    .notEmpty()
+    .withMessage('Password is required'),
+
+  handleValidationErrors
+];
+
 module.exports = {
   signupValidation,
   loginValidation,
@@ -245,5 +269,7 @@ module.exports = {
   // Phase 4
   validateProfileUpdate,
   validatePasswordChange,
-  validateCookieStorage
+  validateCookieStorage,
+  // Phase 5
+  adminLoginValidator
 };

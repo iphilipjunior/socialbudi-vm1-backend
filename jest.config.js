@@ -37,7 +37,10 @@ module.exports = {
   // Show verbose output
   verbose: true,
 
-  // Setup files to run before tests
+  // Setup files to run before tests (sets env vars)
+  setupFiles: ['./tests/setup.js'],
+
+  // Setup files to run after test environment
   setupFilesAfterEnv: [],
 
   // Clear mocks between tests
