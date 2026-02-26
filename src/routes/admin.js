@@ -14,7 +14,7 @@ const router = express.Router();
 const adminController = require('../controllers/adminController');
 const adminAuth = require('../middleware/adminAuth');
 const { adminLoginLimiter, adminGeneralLimiter } = require('../middleware/rateLimiter');
-const { adminLoginValidator } = require('../middleware/validation');
+const { adminLoginValidator, adminActivateUserValidator } = require('../middleware/validation');
 
 // ============================================================================
 // Authentication (no adminAuth required)
@@ -58,7 +58,7 @@ router.get('/users/:id', adminGeneralLimiter, adminAuth, adminController.getUser
  *
  * Manually activate a user account.
  */
-router.post('/users/:id/activate', adminGeneralLimiter, adminAuth, adminController.activateUser);
+router.post('/users/:id/activate', adminGeneralLimiter, adminAuth, adminActivateUserValidator, adminController.activateUser);
 
 // ============================================================================
 // Payment Management (adminAuth required)
