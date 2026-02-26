@@ -199,6 +199,71 @@ const cookieStorageRateLimiter = rateLimit({
   }
 });
 
+// ============================================================================
+// Phase 5: Admin Rate Limiters
+// ============================================================================
+
+/**
+ * Rate limiter for admin login endpoint (POST /api/admin/login)
+ * Limits to 5 requests per minute per IP (STRICT)
+ *
+ * Purpose: Prevent admin credential brute force attacks
+ */
+const adminLoginLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // 5 requests per minute
+  message: {
+    success: false,
+    error: 'Too many login attempts',
+    message: 'Too many login attempts, please try again in a minute'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  handler: (req, res) => {
+    logger.warn('Admin login rate limit exceeded', {
+      ip: req.ip,
+      path: req.path
+    });
+    res.status(429).json({
+      success: false,
+      error: 'Too many login attempts',
+      message: 'Too many login attempts, please try again in a minute'
+    });
+  }
+});
+
+/**
+ * Rate limiter for general admin endpoints
+ * Limits to 60 requests per hour per IP
+ *
+ * Purpose: Prevent API abuse on admin operations
+ */
+const adminGeneralLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 60, // 60 requests per hour
+  message: {
+    success: false,
+    error: 'Too many requests',
+    message: 'Too many requests, please try again later'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  handler: (req, res) => {
+    logger.warn('Admin general rate limit exceeded', {
+      adminId: req.admin?.admin_id,
+      ip: req.ip,
+      path: req.path
+    });
+    res.status(429).json({
+      success: false,
+      error: 'Too many requests',
+      message: 'Too many requests, please try again later'
+    });
+  }
+});
+
 module.exports = {
   signupRateLimiter,
   loginRateLimiter,
@@ -206,5 +271,8 @@ module.exports = {
   // Phase 4
   userProfileRateLimiter,
   passwordChangeRateLimiter,
-  cookieStorageRateLimiter
+  cookieStorageRateLimiter,
+  // Phase 5
+  adminLoginLimiter,
+  adminGeneralLimiter
 };
