@@ -7,7 +7,7 @@
  * @module middleware/validation
  */
 
-const { body, validationResult } = require('express-validator');
+const { body, param, validationResult } = require('express-validator');
 
 /**
  * Creates a validation middleware from an array of validation rules
@@ -262,6 +262,20 @@ const adminLoginValidator = [
   handleValidationErrors
 ];
 
+/**
+ * Admin activate user validation rules
+ *
+ * Validates:
+ * - id: valid UUID format (from URL params)
+ */
+const adminActivateUserValidator = [
+  param('id')
+    .isUUID()
+    .withMessage('Valid user ID (UUID) required'),
+
+  handleValidationErrors
+];
+
 module.exports = {
   signupValidation,
   loginValidation,
@@ -271,5 +285,6 @@ module.exports = {
   validatePasswordChange,
   validateCookieStorage,
   // Phase 5
-  adminLoginValidator
+  adminLoginValidator,
+  adminActivateUserValidator
 };
