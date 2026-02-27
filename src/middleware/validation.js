@@ -276,6 +276,35 @@ const adminActivateUserValidator = [
   handleValidationErrors
 ];
 
+/**
+ * Admin link payment validation rules
+ *
+ * Validates:
+ * - user_id: valid UUID
+ * - payment_id: non-empty string, max 100 chars
+ * - admin_notes: optional string, max 500 chars
+ */
+const adminLinkPaymentValidator = [
+  body('user_id')
+    .isUUID()
+    .withMessage('Valid user ID (UUID) required'),
+
+  body('payment_id')
+    .trim()
+    .notEmpty()
+    .withMessage('Payment ID is required')
+    .isLength({ max: 100 })
+    .withMessage('Payment ID must not exceed 100 characters'),
+
+  body('admin_notes')
+    .optional()
+    .isString()
+    .isLength({ max: 500 })
+    .withMessage('Admin notes must not exceed 500 characters'),
+
+  handleValidationErrors
+];
+
 module.exports = {
   signupValidation,
   loginValidation,
@@ -286,5 +315,6 @@ module.exports = {
   validateCookieStorage,
   // Phase 5
   adminLoginValidator,
-  adminActivateUserValidator
+  adminActivateUserValidator,
+  adminLinkPaymentValidator
 };

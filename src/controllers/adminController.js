@@ -202,34 +202,162 @@ const activateUser = async (req, res) => {
 
 /**
  * Get paginated list of payments
+ *
+ * Returns users with payment data, optional filtering by payment_status.
+ *
  * @route GET /api/admin/payments
+ * @param {Object} req - Express request object
+ * @param {Object} req.query - Query parameters
+ * @param {string} [req.query.payment_status] - Filter by 'pending' or 'paid'
+ * @param {string} [req.query.page] - Page number
+ * @param {string} [req.query.limit] - Results per page
+ * @param {Object} res - Express response object
+ * @returns {Object} JSON with payments array and pagination
  */
 const getPayments = async (req, res) => {
-  res.status(501).json({ success: false, message: 'Not implemented yet' });
+  try {
+    const { payment_status, page, limit } = req.query;
+
+    const filters = {
+      payment_status,
+      page: parseInt(page) || 1,
+      limit: Math.min(parseInt(limit) || 50, 100)
+    };
+
+    const result = await adminService.getPayments(filters);
+
+    res.status(200).json({
+      success: true,
+      payments: result.payments,
+      pagination: result.pagination
+    });
+  } catch (error) {
+    logger.error('Failed to retrieve payments', { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve payments'
+    });
+  }
 };
 
 /**
  * Get payment detail for a specific user
+ *
+ * Returns payment details for a specific user by ID.
+ *
  * @route GET /api/admin/payments/:id
+ * @param {Object} req - Express request object
+ * @param {string} req.params.id - User ID (UUID)
+ * @param {Object} res - Express response object
+ * @returns {Object} JSON with payment object
  */
 const getPaymentDetail = async (req, res) => {
-  res.status(501).json({ success: false, message: 'Not implemented yet' });
+  try {
+    const userId = req.params.id;
+
+    const payment = await adminService.getPaymentDetail(userId);
+
+    res.status(200).json({
+      success: true,
+      payment
+    });
+  } catch (error) {
+    if (error.code === 'USER_NOT_FOUND') {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    logger.error('Failed to retrieve payment detail', { userId: req.params.id, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve payment detail'
+    });
+  }
 };
 
 /**
  * Get orphaned payments with suggested matches
+ *
+ * Returns users with payment_id but not activated, including
+ * suggested matches from same email domain.
+ *
  * @route GET /api/admin/orphaned-payments
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} JSON with orphaned_payments array and total count
  */
 const getOrphanedPayments = async (req, res) => {
-  res.status(501).json({ success: false, message: 'Not implemented yet' });
+  try {
+    const result = await adminService.getOrphanedPayments();
+
+    res.status(200).json({
+      success: true,
+      orphaned_payments: result.orphaned_payments,
+      total: result.total
+    });
+  } catch (error) {
+    logger.error('Failed to retrieve orphaned payments', { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve orphaned payments'
+    });
+  }
 };
 
 /**
  * Link a payment to a user and activate their account
+ *
+ * Manually links a payment_id to a user and activates their account.
+ * Logs action to system_logs and resolves related admin_alerts.
+ *
  * @route POST /api/admin/link-payment
+ * @param {Object} req - Express request object
+ * @param {Object} req.body - Link payment data
+ * @param {string} req.body.user_id - Target user ID (UUID)
+ * @param {string} req.body.payment_id - Payment ID to assign
+ * @param {string} [req.body.admin_notes] - Optional notes for audit log
+ * @param {Object} req.admin - Admin data from adminAuth middleware
+ * @param {string} req.admin.admin_id - Admin ID performing the action
+ * @param {Object} res - Express response object
+ * @returns {Object} JSON with success message
  */
 const linkPayment = async (req, res) => {
-  res.status(501).json({ success: false, message: 'Not implemented yet' });
+  try {
+    const { user_id, payment_id, admin_notes } = req.body;
+    const adminId = req.admin.admin_id;
+
+    const result = await adminService.linkPayment(
+      { user_id, payment_id, admin_notes },
+      adminId
+    );
+
+    res.status(200).json({
+      success: true,
+      message: result.message
+    });
+  } catch (error) {
+    if (error.code === 'USER_NOT_FOUND') {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    if (error.code === 'PAYMENT_ID_IN_USE') {
+      return res.status(409).json({
+        success: false,
+        error: 'Payment ID is already linked to another user'
+      });
+    }
+
+    logger.error('Failed to link payment', { userId: req.body.user_id, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to link payment'
+    });
+  }
 };
 
 /**

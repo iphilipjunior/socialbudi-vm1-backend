@@ -14,7 +14,7 @@ const router = express.Router();
 const adminController = require('../controllers/adminController');
 const adminAuth = require('../middleware/adminAuth');
 const { adminLoginLimiter, adminGeneralLimiter } = require('../middleware/rateLimiter');
-const { adminLoginValidator, adminActivateUserValidator } = require('../middleware/validation');
+const { adminLoginValidator, adminActivateUserValidator, adminLinkPaymentValidator } = require('../middleware/validation');
 
 // ============================================================================
 // Authentication (no adminAuth required)
@@ -92,7 +92,7 @@ router.get('/orphaned-payments', adminGeneralLimiter, adminAuth, adminController
  * Link a payment to a user and activate their account.
  * Body: { user_id, payment_id, admin_notes }
  */
-router.post('/link-payment', adminGeneralLimiter, adminAuth, adminController.linkPayment);
+router.post('/link-payment', adminGeneralLimiter, adminAuth, adminLinkPaymentValidator, adminController.linkPayment);
 
 // ============================================================================
 // Alert Management (adminAuth required)

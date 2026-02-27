@@ -934,4 +934,423 @@ describe('Admin Authentication API - Integration Tests', () => {
       expect(res.body.user.activated_at).toBeDefined();
     });
   });
+
+  // ============================================================================
+  // SUITE: GET /api/admin/payments (Payment Management - List Payments)
+  // ============================================================================
+  describe('GET /api/admin/payments', () => {
+    const mockPaymentsData = [
+      {
+        id: 'user-uuid-1',
+        email: 'user1@example.com',
+        full_name: 'User One',
+        payment_status: 'paid',
+        payment_id: 'PS_123',
+        activated: true,
+        activated_at: '2026-02-15T10:00:00Z',
+        signup_date: '2026-02-14T08:00:00Z',
+        created_at: '2026-02-14T08:00:00Z'
+      }
+    ];
+
+    it('should return 401 without token', async () => {
+      const res = await request(app)
+        .get('/api/admin/payments')
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(401);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should return 403 with user token', async () => {
+      const jwt = require('jsonwebtoken');
+      const userToken = jwt.sign(
+        { user_id: 'user-123', email: 'user@test.com', role: 'user' },
+        process.env.JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+
+      const res = await request(app)
+        .get('/api/admin/payments')
+        .set('Authorization', `Bearer ${userToken}`)
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(403);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should return 200 with valid admin token and payments array with pagination', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const rangeMock = jest.fn().mockResolvedValue({ data: mockPaymentsData, error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockImplementation((query, options) => {
+              if (options && options.count === 'exact') {
+                return Promise.resolve({ count: 1, error: null });
+              }
+              return { order: orderMock };
+            })
+          };
+        }
+        return {};
+      });
+
+      const res = await request(app)
+        .get('/api/admin/payments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.payments).toBeDefined();
+      expect(Array.isArray(res.body.payments)).toBe(true);
+      expect(res.body.pagination).toBeDefined();
+      expect(res.body.pagination.current_page).toBeDefined();
+      expect(res.body.pagination.total_pages).toBeDefined();
+    });
+  });
+
+  // ============================================================================
+  // SUITE: GET /api/admin/payments/:id (Payment Management - Get Payment Detail)
+  // ============================================================================
+  describe('GET /api/admin/payments/:id', () => {
+    const mockUserId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+    const mockPaymentData = {
+      id: mockUserId,
+      full_name: 'Test User',
+      email: 'test@example.com',
+      payment_status: 'paid',
+      payment_id: 'PS_123',
+      payment_verified_at: '2026-02-15T12:00:00Z',
+      activated: true,
+      activated_at: '2026-02-15T10:00:00Z',
+      signup_date: '2026-02-14T08:00:00Z',
+      created_at: '2026-02-14T08:00:00Z',
+      is_active: true
+    };
+
+    it('should return 401 without token', async () => {
+      const res = await request(app)
+        .get(`/api/admin/payments/${mockUserId}`)
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(401);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should return 404 when user not found', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: null, error: null })
+              })
+            })
+          };
+        }
+        return {};
+      });
+
+      const res = await request(app)
+        .get('/api/admin/payments/non-existent-uuid')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toBe('User not found');
+    });
+
+    it('should return 200 with payment detail object', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: mockPaymentData, error: null })
+              })
+            })
+          };
+        }
+        return {};
+      });
+
+      const res = await request(app)
+        .get(`/api/admin/payments/${mockUserId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.payment).toBeDefined();
+      expect(res.body.payment.user_id).toBe(mockUserId);
+      expect(res.body.payment.name).toBe('Test User');
+      expect(res.body.payment.payment_status).toBe('paid');
+    });
+  });
+
+  // ============================================================================
+  // SUITE: GET /api/admin/orphaned-payments (Payment Management - Orphaned Payments)
+  // ============================================================================
+  describe('GET /api/admin/orphaned-payments', () => {
+    it('should return 401 without token', async () => {
+      const res = await request(app)
+        .get('/api/admin/orphaned-payments')
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(401);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should return 200 with orphaned_payments array and total count', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const neqMock = jest.fn().mockReturnValue({
+        order: jest.fn().mockResolvedValue({ data: [], error: null })
+      });
+      const eqMock = jest.fn().mockReturnValue({ neq: neqMock });
+      const notMock = jest.fn().mockReturnValue({ eq: eqMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({ not: notMock })
+      }));
+
+      const res = await request(app)
+        .get('/api/admin/orphaned-payments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.orphaned_payments).toBeDefined();
+      expect(Array.isArray(res.body.orphaned_payments)).toBe(true);
+      expect(res.body.total).toBeDefined();
+    });
+  });
+
+  // ============================================================================
+  // SUITE: POST /api/admin/link-payment (Payment Management - Link Payment)
+  // ============================================================================
+  describe('POST /api/admin/link-payment', () => {
+    const mockUserId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+    const mockPaymentId = 'PS_LINK_123';
+    const mockUserData = {
+      id: mockUserId,
+      email: 'test@example.com',
+      full_name: 'Test User',
+      payment_status: 'pending',
+      activated: false
+    };
+
+    it('should return 401 without token', async () => {
+      const res = await request(app)
+        .post('/api/admin/link-payment')
+        .send({ user_id: mockUserId, payment_id: mockPaymentId })
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(401);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should return 400 if user_id is missing or invalid UUID', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const res = await request(app)
+        .post('/api/admin/link-payment')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp())
+        .send({ user_id: 'invalid-uuid', payment_id: mockPaymentId });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.details).toBeDefined();
+    });
+
+    it('should return 400 if payment_id is missing', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const res = await request(app)
+        .post('/api/admin/link-payment')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp())
+        .send({ user_id: mockUserId });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.details).toBeDefined();
+    });
+
+    it('should return 404 if user not found', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: null, error: null })
+              })
+            })
+          };
+        }
+        return {};
+      });
+
+      const res = await request(app)
+        .post('/api/admin/link-payment')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp())
+        .send({ user_id: mockUserId, payment_id: mockPaymentId });
+
+      expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toBe('User not found');
+    });
+
+    it('should return 409 if payment_id already in use', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const existingUser = {
+        id: 'other-user-uuid',
+        email: 'other@example.com'
+      };
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockImplementation((query) => {
+              if (query.includes('payment_status')) {
+                return {
+                  eq: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({ data: mockUserData, error: null })
+                  })
+                };
+              }
+              // payment_id check returns existing user
+              return {
+                eq: jest.fn().mockReturnValue({
+                  neq: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({ data: existingUser, error: null })
+                  })
+                })
+              };
+            })
+          };
+        }
+        return {};
+      });
+
+      const res = await request(app)
+        .post('/api/admin/link-payment')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp())
+        .send({ user_id: mockUserId, payment_id: mockPaymentId });
+
+      expect(res.status).toBe(409);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toBe('Payment ID is already linked to another user');
+    });
+
+    it('should return 200 and link payment successfully', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const updateMock = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null })
+      });
+
+      const insertMock = jest.fn().mockResolvedValue({ error: null });
+
+      const alertUpdateMock = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          filter: jest.fn().mockResolvedValue({ error: null })
+        })
+      });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockImplementation((query) => {
+              if (query.includes('payment_status')) {
+                return {
+                  eq: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({ data: mockUserData, error: null })
+                  })
+                };
+              }
+              return {
+                eq: jest.fn().mockReturnValue({
+                  neq: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } })
+                  })
+                })
+              };
+            }),
+            update: updateMock
+          };
+        }
+        if (table === 'admin_alerts') {
+          return { update: alertUpdateMock };
+        }
+        if (table === 'system_logs') {
+          return { insert: insertMock };
+        }
+        return {};
+      });
+
+      const res = await request(app)
+        .post('/api/admin/link-payment')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp())
+        .send({ user_id: mockUserId, payment_id: mockPaymentId });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.message).toBe('Payment linked and user activated successfully');
+    });
+  });
 });
