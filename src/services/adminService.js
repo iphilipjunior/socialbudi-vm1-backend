@@ -661,26 +661,269 @@ const linkPayment = async (data, adminId) => {
 
 /**
  * Get paginated list of alerts with filters
- * @throws {Error} Not implemented yet
+ *
+ * @param {Object} filters - Filter options
+ * @param {string} [filters.status] - 'unresolved' or 'resolved', default 'unresolved'
+ * @param {string} [filters.alert_type] - 'orphaned_payment', 'duplicate_payment', 'new_signup', 'system_error'
+ * @param {string} [filters.severity] - 'info', 'warning', 'error'
+ * @param {number} [filters.page] - Page number, default 1
+ * @param {number} [filters.limit] - Results per page, default 50, max 100
+ * @returns {Promise<Object>} Object containing alerts array and pagination info
  */
-const getAlerts = async () => {
-  throw new Error('Not implemented yet');
+const getAlerts = async (filters = {}) => {
+  try {
+    const page = filters.page || 1;
+    const limit = Math.min(filters.limit || 50, 100);
+    const offset = (page - 1) * limit;
+    const status = filters.status || 'unresolved';
+
+    // Build base query
+    let query = supabase
+      .from('admin_alerts')
+      .select('alert_id, alert_type, severity, title, description, metadata, status, resolved_by, resolved_at, created_at');
+
+    // Apply status filter (default to 'unresolved')
+    query = query.eq('status', status);
+
+    // Apply alert_type filter
+    if (filters.alert_type) {
+      query = query.eq('alert_type', filters.alert_type);
+    }
+
+    // Apply severity filter
+    if (filters.severity) {
+      query = query.eq('severity', filters.severity);
+    }
+
+    // Apply ordering and pagination
+    query = query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    const { data: alerts, error } = await query;
+
+    if (error) {
+      logger.error('Error fetching alerts', { error: error.message });
+      throw error;
+    }
+
+    // Build count query with same filters
+    let countQuery = supabase
+      .from('admin_alerts')
+      .select('alert_id', { count: 'exact', head: true })
+      .eq('status', status);
+
+    if (filters.alert_type) {
+      countQuery = countQuery.eq('alert_type', filters.alert_type);
+    }
+
+    if (filters.severity) {
+      countQuery = countQuery.eq('severity', filters.severity);
+    }
+
+    const { count: totalCount, error: countError } = await countQuery;
+
+    if (countError) {
+      logger.error('Error counting alerts', { error: countError.message });
+      throw countError;
+    }
+
+    return {
+      alerts: alerts || [],
+      pagination: {
+        current_page: page,
+        total_pages: Math.ceil((totalCount || 0) / limit),
+        total_alerts: totalCount || 0,
+        per_page: limit
+      }
+    };
+  } catch (err) {
+    logger.error('getAlerts error', { error: err.message });
+    throw err;
+  }
 };
 
 /**
  * Resolve an admin alert
- * @throws {Error} Not implemented yet
+ *
+ * @param {string} alertId - admin_alerts.alert_id (UUID)
+ * @param {string} adminId - admin_users.admin_id (UUID) for logging
+ * @param {Object} data - Resolution data
+ * @param {string} data.action - Action taken to resolve
+ * @param {string} [data.notes] - Optional resolution notes
+ * @returns {Promise<Object>} Success message
+ * @throws {Object} Error with code 'ALERT_NOT_FOUND' or 'ALREADY_RESOLVED'
  */
-const resolveAlert = async () => {
-  throw new Error('Not implemented yet');
+const resolveAlert = async (alertId, adminId, data) => {
+  try {
+    // Query alert
+    const { data: alert, error } = await supabase
+      .from('admin_alerts')
+      .select('*')
+      .eq('alert_id', alertId)
+      .single();
+
+    if (error || !alert) {
+      const err = new Error('Alert not found');
+      err.code = 'ALERT_NOT_FOUND';
+      throw err;
+    }
+
+    // Check if already resolved
+    if (alert.status === 'resolved') {
+      const err = new Error('Alert is already resolved');
+      err.code = 'ALREADY_RESOLVED';
+      throw err;
+    }
+
+    // Update alert
+    const resolvedAt = new Date().toISOString();
+    const { error: updateError } = await supabase
+      .from('admin_alerts')
+      .update({
+        status: 'resolved',
+        resolved_by: adminId,
+        resolved_at: resolvedAt
+      })
+      .eq('alert_id', alertId);
+
+    if (updateError) {
+      logger.error('Error resolving alert', { alertId, error: updateError.message });
+      throw updateError;
+    }
+
+    // Log to system_logs
+    await supabase.from('system_logs').insert({
+      log_level: 'info',
+      service: 'admin',
+      action: 'resolve_alert',
+      message: `Admin resolved alert: ${alertId}`,
+      admin_id: adminId,
+      request_data: {
+        alert_id: alertId,
+        action: data.action,
+        notes: data.notes || null
+      }
+    });
+
+    logger.info('Alert resolved successfully', { alertId, adminId });
+
+    return { message: 'Alert resolved successfully' };
+  } catch (err) {
+    if (err.code === 'ALERT_NOT_FOUND' || err.code === 'ALREADY_RESOLVED') {
+      throw err;
+    }
+    logger.error('resolveAlert error', { alertId, adminId, error: err.message });
+    throw err;
+  }
 };
 
 /**
  * Get paginated system logs with filters
- * @throws {Error} Not implemented yet
+ *
+ * @param {Object} filters - Filter options
+ * @param {string} [filters.log_level] - 'info', 'warn', 'error'
+ * @param {string} [filters.action] - Action string to filter by
+ * @param {string} [filters.user_id] - UUID of user to filter by
+ * @param {string} [filters.date_from] - ISO date string, start of range
+ * @param {string} [filters.date_to] - ISO date string, end of range
+ * @param {number} [filters.page] - Page number, default 1
+ * @param {number} [filters.limit] - Results per page, default 100, max 200
+ * @returns {Promise<Object>} Object containing logs array and pagination info
  */
-const getLogs = async () => {
-  throw new Error('Not implemented yet');
+const getLogs = async (filters = {}) => {
+  try {
+    const page = filters.page || 1;
+    const limit = Math.min(filters.limit || 100, 200);
+    const offset = (page - 1) * limit;
+
+    // Build base query (exclude request_data, response_data, error_stack, user_agent for lean response)
+    let query = supabase
+      .from('system_logs')
+      .select('id, log_level, service, action, message, user_id, admin_id, ip_address, created_at');
+
+    // Apply log_level filter
+    if (filters.log_level) {
+      query = query.eq('log_level', filters.log_level);
+    }
+
+    // Apply action filter
+    if (filters.action) {
+      query = query.eq('action', filters.action);
+    }
+
+    // Apply user_id filter
+    if (filters.user_id) {
+      query = query.eq('user_id', filters.user_id);
+    }
+
+    // Apply date_from filter
+    if (filters.date_from) {
+      query = query.gte('created_at', filters.date_from);
+    }
+
+    // Apply date_to filter
+    if (filters.date_to) {
+      query = query.lte('created_at', filters.date_to);
+    }
+
+    // Apply ordering and pagination
+    query = query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    const { data: logs, error } = await query;
+
+    if (error) {
+      logger.error('Error fetching logs', { error: error.message });
+      throw error;
+    }
+
+    // Build count query with same filters
+    let countQuery = supabase
+      .from('system_logs')
+      .select('id', { count: 'exact', head: true });
+
+    if (filters.log_level) {
+      countQuery = countQuery.eq('log_level', filters.log_level);
+    }
+
+    if (filters.action) {
+      countQuery = countQuery.eq('action', filters.action);
+    }
+
+    if (filters.user_id) {
+      countQuery = countQuery.eq('user_id', filters.user_id);
+    }
+
+    if (filters.date_from) {
+      countQuery = countQuery.gte('created_at', filters.date_from);
+    }
+
+    if (filters.date_to) {
+      countQuery = countQuery.lte('created_at', filters.date_to);
+    }
+
+    const { count: totalCount, error: countError } = await countQuery;
+
+    if (countError) {
+      logger.error('Error counting logs', { error: countError.message });
+      throw countError;
+    }
+
+    return {
+      logs: logs || [],
+      pagination: {
+        current_page: page,
+        total_pages: Math.ceil((totalCount || 0) / limit),
+        total_logs: totalCount || 0,
+        per_page: limit
+      }
+    };
+  } catch (err) {
+    logger.error('getLogs error', { error: err.message });
+    throw err;
+  }
 };
 
 module.exports = {

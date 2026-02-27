@@ -14,7 +14,7 @@ const router = express.Router();
 const adminController = require('../controllers/adminController');
 const adminAuth = require('../middleware/adminAuth');
 const { adminLoginLimiter, adminGeneralLimiter } = require('../middleware/rateLimiter');
-const { adminLoginValidator, adminActivateUserValidator, adminLinkPaymentValidator } = require('../middleware/validation');
+const { adminLoginValidator, adminActivateUserValidator, adminLinkPaymentValidator, adminResolveAlertValidator, adminLogsQueryValidator } = require('../middleware/validation');
 
 // ============================================================================
 // Authentication (no adminAuth required)
@@ -112,7 +112,7 @@ router.get('/alerts', adminGeneralLimiter, adminAuth, adminController.getAlerts)
  * Resolve an admin alert.
  * Body: { action, notes }
  */
-router.post('/alerts/:id/resolve', adminGeneralLimiter, adminAuth, adminController.resolveAlert);
+router.post('/alerts/:id/resolve', adminGeneralLimiter, adminAuth, adminResolveAlertValidator, adminController.resolveAlert);
 
 // ============================================================================
 // System Logs (adminAuth required)
@@ -124,7 +124,7 @@ router.post('/alerts/:id/resolve', adminGeneralLimiter, adminAuth, adminControll
  * Get paginated system logs.
  * Query params: log_level, action, user_id, date_from, date_to, page, limit
  */
-router.get('/logs', adminGeneralLimiter, adminAuth, adminController.getLogs);
+router.get('/logs', adminGeneralLimiter, adminAuth, adminLogsQueryValidator, adminController.getLogs);
 
 // ============================================================================
 // Orphaned Payment Detection (Phase 3 - preserved)

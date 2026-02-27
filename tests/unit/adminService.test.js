@@ -1122,4 +1122,460 @@ describe('adminService - User Management', () => {
       expect(result.message).toBe('Payment linked and user activated successfully');
     });
   });
+
+  // ============================================================================
+  // getAlerts Tests
+  // ============================================================================
+  describe('getAlerts', () => {
+    const mockAlertsData = [
+      {
+        alert_id: 'alert-uuid-1',
+        alert_type: 'orphaned_payment',
+        severity: 'warning',
+        title: 'Orphaned Payment Detected',
+        description: 'Payment ID used by multiple users',
+        metadata: { payment_id: 'PS_123' },
+        status: 'unresolved',
+        resolved_by: null,
+        resolved_at: null,
+        created_at: '2026-02-15T10:00:00Z'
+      },
+      {
+        alert_id: 'alert-uuid-2',
+        alert_type: 'system_error',
+        severity: 'error',
+        title: 'System Error',
+        description: 'Database connection failed',
+        metadata: {},
+        status: 'unresolved',
+        resolved_by: null,
+        resolved_at: null,
+        created_at: '2026-02-15T09:00:00Z'
+      }
+    ];
+
+    it('should return paginated alerts with correct structure', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: mockAlertsData, error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+      const eqMock = jest.fn().mockReturnValue({ order: orderMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return {
+              eq: jest.fn().mockResolvedValue({ count: 2, error: null })
+            };
+          }
+          return { eq: eqMock };
+        })
+      }));
+
+      const result = await adminService.getAlerts({});
+
+      expect(result.alerts).toHaveLength(2);
+      expect(result.alerts[0].alert_id).toBe('alert-uuid-1');
+      expect(result.pagination).toBeDefined();
+      expect(result.pagination.current_page).toBe(1);
+    });
+
+    it('should default status to unresolved when not provided', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: mockAlertsData, error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+      const eqMock = jest.fn().mockReturnValue({ order: orderMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return {
+              eq: jest.fn().mockResolvedValue({ count: 2, error: null })
+            };
+          }
+          return { eq: eqMock };
+        })
+      }));
+
+      await adminService.getAlerts({});
+
+      expect(eqMock).toHaveBeenCalledWith('status', 'unresolved');
+    });
+
+    it('should apply alert_type filter', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: [mockAlertsData[0]], error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+      const alertTypeEqMock = jest.fn().mockReturnValue({ order: orderMock });
+      const statusEqMock = jest.fn().mockReturnValue({ eq: alertTypeEqMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return {
+              eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockResolvedValue({ count: 1, error: null })
+              })
+            };
+          }
+          return { eq: statusEqMock };
+        })
+      }));
+
+      await adminService.getAlerts({ alert_type: 'orphaned_payment' });
+
+      expect(alertTypeEqMock).toHaveBeenCalledWith('alert_type', 'orphaned_payment');
+    });
+
+    it('should apply severity filter', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: [mockAlertsData[1]], error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+      const severityEqMock = jest.fn().mockReturnValue({ order: orderMock });
+      const statusEqMock = jest.fn().mockReturnValue({ eq: severityEqMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return {
+              eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockResolvedValue({ count: 1, error: null })
+              })
+            };
+          }
+          return { eq: statusEqMock };
+        })
+      }));
+
+      await adminService.getAlerts({ severity: 'error' });
+
+      expect(severityEqMock).toHaveBeenCalledWith('severity', 'error');
+    });
+
+    it('should return correct pagination object', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: mockAlertsData, error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+      const eqMock = jest.fn().mockReturnValue({ order: orderMock });
+
+      let selectCallCount = 0;
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          selectCallCount++;
+          if (selectCallCount === 2 || (options && options.count === 'exact')) {
+            return {
+              eq: jest.fn().mockResolvedValue({ count: 100, error: null })
+            };
+          }
+          return { eq: eqMock };
+        })
+      }));
+
+      const result = await adminService.getAlerts({ page: 2, limit: 25 });
+
+      expect(result.pagination.current_page).toBe(2);
+      expect(result.pagination.per_page).toBe(25);
+      expect(result.pagination.total_alerts).toBe(100);
+      expect(result.pagination.total_pages).toBe(4);
+    });
+  });
+
+  // ============================================================================
+  // resolveAlert Tests
+  // ============================================================================
+  describe('resolveAlert', () => {
+    const mockAlertId = 'alert-uuid-123';
+    const mockAdminId = 'admin-uuid-456';
+    const mockAlertData = {
+      alert_id: mockAlertId,
+      alert_type: 'orphaned_payment',
+      severity: 'warning',
+      title: 'Orphaned Payment',
+      status: 'unresolved'
+    };
+
+    it('should update status to resolved with resolved_by and resolved_at', async () => {
+      const updateMock = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null })
+      });
+
+      const insertMock = jest.fn().mockResolvedValue({ error: null });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'admin_alerts') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: mockAlertData, error: null })
+              })
+            }),
+            update: updateMock
+          };
+        }
+        if (table === 'system_logs') {
+          return { insert: insertMock };
+        }
+        return {};
+      });
+
+      const result = await adminService.resolveAlert(mockAlertId, mockAdminId, { action: 'Linked payment manually' });
+
+      expect(result.message).toBe('Alert resolved successfully');
+      expect(updateMock).toHaveBeenCalled();
+      const updateCall = updateMock.mock.calls[0][0];
+      expect(updateCall.status).toBe('resolved');
+      expect(updateCall.resolved_by).toBe(mockAdminId);
+      expect(updateCall.resolved_at).toBeDefined();
+    });
+
+    it('should log action to system_logs with action resolve_alert', async () => {
+      const updateMock = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null })
+      });
+
+      const insertMock = jest.fn().mockResolvedValue({ error: null });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'admin_alerts') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: mockAlertData, error: null })
+              })
+            }),
+            update: updateMock
+          };
+        }
+        if (table === 'system_logs') {
+          return { insert: insertMock };
+        }
+        return {};
+      });
+
+      await adminService.resolveAlert(mockAlertId, mockAdminId, { action: 'Linked payment', notes: 'Test notes' });
+
+      expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({
+        log_level: 'info',
+        service: 'admin',
+        action: 'resolve_alert',
+        admin_id: mockAdminId
+      }));
+    });
+
+    it('should throw ALERT_NOT_FOUND when alert does not exist', async () => {
+      supabase.from.mockImplementation((table) => {
+        if (table === 'admin_alerts') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: null, error: null })
+              })
+            })
+          };
+        }
+        return {};
+      });
+
+      await expect(adminService.resolveAlert('non-existent-id', mockAdminId, { action: 'Test' })).rejects.toMatchObject({
+        code: 'ALERT_NOT_FOUND'
+      });
+    });
+
+    it('should throw ALREADY_RESOLVED when alert is already resolved', async () => {
+      const resolvedAlert = { ...mockAlertData, status: 'resolved' };
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'admin_alerts') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: resolvedAlert, error: null })
+              })
+            })
+          };
+        }
+        return {};
+      });
+
+      await expect(adminService.resolveAlert(mockAlertId, mockAdminId, { action: 'Test' })).rejects.toMatchObject({
+        code: 'ALREADY_RESOLVED'
+      });
+    });
+  });
+
+  // ============================================================================
+  // getLogs Tests
+  // ============================================================================
+  describe('getLogs', () => {
+    const mockLogsData = [
+      {
+        id: 'log-uuid-1',
+        log_level: 'info',
+        service: 'admin',
+        action: 'admin_login',
+        message: 'Admin login: admin@example.com',
+        user_id: null,
+        admin_id: 'admin-uuid-1',
+        ip_address: '192.168.1.1',
+        created_at: '2026-02-15T10:00:00Z'
+      },
+      {
+        id: 'log-uuid-2',
+        log_level: 'error',
+        service: 'payment',
+        action: 'payment_failed',
+        message: 'Payment processing failed',
+        user_id: 'user-uuid-1',
+        admin_id: null,
+        ip_address: '192.168.1.2',
+        created_at: '2026-02-15T09:00:00Z'
+      }
+    ];
+
+    it('should return paginated logs with correct structure', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: mockLogsData, error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return Promise.resolve({ count: 2, error: null });
+          }
+          return { order: orderMock };
+        })
+      }));
+
+      const result = await adminService.getLogs({});
+
+      expect(result.logs).toHaveLength(2);
+      expect(result.logs[0].id).toBe('log-uuid-1');
+      expect(result.pagination).toBeDefined();
+      expect(result.pagination.current_page).toBe(1);
+    });
+
+    it('should apply log_level filter', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: [mockLogsData[0]], error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+      const eqMock = jest.fn().mockReturnValue({ order: orderMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return {
+              eq: jest.fn().mockResolvedValue({ count: 1, error: null })
+            };
+          }
+          return { eq: eqMock };
+        })
+      }));
+
+      await adminService.getLogs({ log_level: 'info' });
+
+      expect(eqMock).toHaveBeenCalledWith('log_level', 'info');
+    });
+
+    it('should apply action filter', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: [mockLogsData[0]], error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+      const eqMock = jest.fn().mockReturnValue({ order: orderMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return {
+              eq: jest.fn().mockResolvedValue({ count: 1, error: null })
+            };
+          }
+          return { eq: eqMock };
+        })
+      }));
+
+      await adminService.getLogs({ action: 'admin_login' });
+
+      expect(eqMock).toHaveBeenCalledWith('action', 'admin_login');
+    });
+
+    it('should apply user_id filter', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: [mockLogsData[1]], error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+      const eqMock = jest.fn().mockReturnValue({ order: orderMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return {
+              eq: jest.fn().mockResolvedValue({ count: 1, error: null })
+            };
+          }
+          return { eq: eqMock };
+        })
+      }));
+
+      await adminService.getLogs({ user_id: 'user-uuid-1' });
+
+      expect(eqMock).toHaveBeenCalledWith('user_id', 'user-uuid-1');
+    });
+
+    it('should apply date_from and date_to filters', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: mockLogsData, error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+      const lteMock = jest.fn().mockReturnValue({ order: orderMock });
+      const gteMock = jest.fn().mockReturnValue({ lte: lteMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return {
+              gte: jest.fn().mockReturnValue({
+                lte: jest.fn().mockResolvedValue({ count: 2, error: null })
+              })
+            };
+          }
+          return { gte: gteMock };
+        })
+      }));
+
+      await adminService.getLogs({
+        date_from: '2026-02-15T00:00:00Z',
+        date_to: '2026-02-15T23:59:59Z'
+      });
+
+      expect(gteMock).toHaveBeenCalledWith('created_at', '2026-02-15T00:00:00Z');
+      expect(lteMock).toHaveBeenCalledWith('created_at', '2026-02-15T23:59:59Z');
+    });
+
+    it('should default to page 1, limit 100', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: [], error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return Promise.resolve({ count: 0, error: null });
+          }
+          return { order: orderMock };
+        })
+      }));
+
+      const result = await adminService.getLogs({});
+
+      expect(result.pagination.current_page).toBe(1);
+      expect(result.pagination.per_page).toBe(100);
+    });
+
+    it('should not include request_data, response_data, error_stack in default select', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: mockLogsData, error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+      const selectMock = jest.fn().mockReturnValue({ order: orderMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return Promise.resolve({ count: 2, error: null });
+          }
+          // Verify query doesn't include sensitive fields
+          expect(query).not.toContain('request_data');
+          expect(query).not.toContain('response_data');
+          expect(query).not.toContain('error_stack');
+          return { order: orderMock };
+        })
+      }));
+
+      await adminService.getLogs({});
+    });
+  });
 });
