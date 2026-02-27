@@ -362,26 +362,147 @@ const linkPayment = async (req, res) => {
 
 /**
  * Get paginated list of alerts
+ *
+ * Returns alerts from admin_alerts table with optional filtering.
+ * Default status is 'unresolved'.
+ *
  * @route GET /api/admin/alerts
+ * @param {Object} req - Express request object
+ * @param {Object} req.query - Query parameters
+ * @param {string} [req.query.status] - 'unresolved' or 'resolved' (default: 'unresolved')
+ * @param {string} [req.query.alert_type] - Filter by alert type
+ * @param {string} [req.query.severity] - Filter by severity ('info', 'warning', 'error')
+ * @param {string} [req.query.page] - Page number
+ * @param {string} [req.query.limit] - Results per page
+ * @param {Object} res - Express response object
+ * @returns {Object} JSON with alerts array and pagination
  */
 const getAlerts = async (req, res) => {
-  res.status(501).json({ success: false, message: 'Not implemented yet' });
+  try {
+    const { status, alert_type, severity, page, limit } = req.query;
+
+    const filters = {
+      status: status || 'unresolved',
+      alert_type,
+      severity,
+      page: parseInt(page) || 1,
+      limit: Math.min(parseInt(limit) || 50, 100)
+    };
+
+    const result = await adminService.getAlerts(filters);
+
+    res.status(200).json({
+      success: true,
+      alerts: result.alerts,
+      pagination: result.pagination
+    });
+  } catch (error) {
+    logger.error('Failed to retrieve alerts', { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve alerts'
+    });
+  }
 };
 
 /**
  * Resolve an admin alert
+ *
+ * Sets alert status to 'resolved' with admin ID and timestamp.
+ * Logs action to system_logs.
+ *
  * @route POST /api/admin/alerts/:id/resolve
+ * @param {Object} req - Express request object
+ * @param {string} req.params.id - Alert ID (UUID)
+ * @param {Object} req.body - Resolution data
+ * @param {string} req.body.action - Action taken to resolve
+ * @param {string} [req.body.notes] - Optional resolution notes
+ * @param {Object} req.admin - Admin data from adminAuth middleware
+ * @param {string} req.admin.admin_id - Admin ID performing the action
+ * @param {Object} res - Express response object
+ * @returns {Object} JSON with success message
  */
 const resolveAlert = async (req, res) => {
-  res.status(501).json({ success: false, message: 'Not implemented yet' });
+  try {
+    const alertId = req.params.id;
+    const adminId = req.admin.admin_id;
+    const { action, notes } = req.body;
+
+    const result = await adminService.resolveAlert(alertId, adminId, { action, notes });
+
+    res.status(200).json({
+      success: true,
+      message: result.message
+    });
+  } catch (error) {
+    if (error.code === 'ALERT_NOT_FOUND') {
+      return res.status(404).json({
+        success: false,
+        error: 'Alert not found'
+      });
+    }
+
+    if (error.code === 'ALREADY_RESOLVED') {
+      return res.status(400).json({
+        success: false,
+        error: 'Alert is already resolved'
+      });
+    }
+
+    logger.error('Failed to resolve alert', { alertId: req.params.id, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to resolve alert'
+    });
+  }
 };
 
 /**
  * Get paginated system logs
+ *
+ * Returns logs from system_logs table with optional filtering.
+ *
  * @route GET /api/admin/logs
+ * @param {Object} req - Express request object
+ * @param {Object} req.query - Query parameters
+ * @param {string} [req.query.log_level] - Filter by log level ('info', 'warn', 'error')
+ * @param {string} [req.query.action] - Filter by action
+ * @param {string} [req.query.user_id] - Filter by user ID (UUID)
+ * @param {string} [req.query.date_from] - Start date (ISO format)
+ * @param {string} [req.query.date_to] - End date (ISO format)
+ * @param {string} [req.query.page] - Page number
+ * @param {string} [req.query.limit] - Results per page
+ * @param {Object} res - Express response object
+ * @returns {Object} JSON with logs array and pagination
  */
 const getLogs = async (req, res) => {
-  res.status(501).json({ success: false, message: 'Not implemented yet' });
+  try {
+    const { log_level, action, user_id, date_from, date_to, page, limit } = req.query;
+
+    const filters = {
+      log_level,
+      action,
+      user_id,
+      date_from,
+      date_to,
+      page: parseInt(page) || 1,
+      limit: Math.min(parseInt(limit) || 100, 200)
+    };
+
+    const result = await adminService.getLogs(filters);
+
+    res.status(200).json({
+      success: true,
+      logs: result.logs,
+      pagination: result.pagination
+    });
+  } catch (error) {
+    logger.error('Failed to retrieve logs', { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve logs'
+    });
+  }
 };
 
 /**

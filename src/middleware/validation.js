@@ -7,7 +7,7 @@
  * @module middleware/validation
  */
 
-const { body, param, validationResult } = require('express-validator');
+const { body, param, query, validationResult } = require('express-validator');
 
 /**
  * Creates a validation middleware from an array of validation rules
@@ -305,6 +305,60 @@ const adminLinkPaymentValidator = [
   handleValidationErrors
 ];
 
+/**
+ * Admin resolve alert validation rules
+ *
+ * Validates:
+ * - id: valid UUID (from URL params)
+ * - action: non-empty string
+ * - notes: optional string max 500 chars
+ */
+const adminResolveAlertValidator = [
+  param('id')
+    .isUUID()
+    .withMessage('Valid alert ID (UUID) required'),
+
+  body('action')
+    .trim()
+    .notEmpty()
+    .withMessage('Action is required'),
+
+  body('notes')
+    .optional()
+    .isString()
+    .isLength({ max: 500 })
+    .withMessage('Notes must not exceed 500 characters'),
+
+  handleValidationErrors
+];
+
+/**
+ * Admin logs query validation rules
+ *
+ * Validates:
+ * - date_from: optional valid ISO date
+ * - date_to: optional valid ISO date
+ * - user_id: optional valid UUID
+ */
+const adminLogsQueryValidator = [
+  query('date_from')
+    .optional()
+    .isISO8601()
+    .withMessage('date_from must be a valid ISO 8601 date'),
+
+  query('date_to')
+    .optional()
+    .isISO8601()
+    .withMessage('date_to must be a valid ISO 8601 date'),
+
+  query('user_id')
+    .optional()
+    .isUUID()
+    .withMessage('user_id must be a valid UUID'),
+
+  handleValidationErrors
+];
+
 module.exports = {
   signupValidation,
   loginValidation,
@@ -316,5 +370,7 @@ module.exports = {
   // Phase 5
   adminLoginValidator,
   adminActivateUserValidator,
-  adminLinkPaymentValidator
+  adminLinkPaymentValidator,
+  adminResolveAlertValidator,
+  adminLogsQueryValidator
 };

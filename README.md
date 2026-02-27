@@ -32,6 +32,8 @@ Lead Generation Platform - Backend API Server
 | `JWT_EXPIRES_IN` | JWT token expiration (default: 7d) | No |
 | `CORS_ORIGIN` | Allowed CORS origin (required in production) | Yes (prod) |
 | `N8N_WEBHOOK_SECRET` | HMAC secret for payment webhooks | Yes |
+| `ADMIN_JWT_SECRET` | Secret key for admin JWT signing (must differ from JWT_SECRET) | Yes |
+| `ADMIN_JWT_EXPIRES_IN` | Admin JWT expiration (default: 24h) | No |
 
 ## Project Structure
 ```
@@ -170,7 +172,7 @@ See `docs/PHASE_4_COMPLETION_REPORT.md` for complete security audit details.
 | Phase 2 | Authentication Backend | Complete |
 | Phase 3 | Payment Integration | Complete |
 | Phase 4 | User Management + Chrome Extension | Complete |
-| Phase 5 | Admin Backend | Planned |
+| Phase 5 | Admin Backend | Complete |
 
 ### Chrome Extension
 
@@ -458,7 +460,54 @@ The script handles:
 - [Authentication API](docs/API_AUTH.md) - Complete auth endpoint documentation
 - [User Management API](docs/API_USER_MANAGEMENT.md) - User profile and settings documentation
 - [Payment API](docs/API_PAYMENT.md) - Payment webhook documentation
+- [Admin API](docs/API_ADMIN.md) - Admin backend documentation (Phase 5)
 - [Phase 4 Completion Report](docs/PHASE_4_COMPLETION_REPORT.md) - Phase 4 implementation details
+- [Phase 5 Completion Report](docs/PHASE_5_COMPLETION_REPORT.md) - Phase 5 implementation details
+
+---
+
+## Phase 5: Admin Backend ✅ COMPLETE
+
+**Duration:** February 27, 2026
+**Status:** Complete
+
+### Overview
+
+Phase 5 implements a secure admin backend with separate JWT authentication for managing users, payments, alerts, and system logs.
+
+### Admin Endpoints (11 total)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/admin/login` | Admin authentication |
+| GET | `/api/admin/users` | List users with search/filter |
+| GET | `/api/admin/users/:id` | Get user details with API keys |
+| POST | `/api/admin/users/:id/activate` | Manual user activation |
+| GET | `/api/admin/payments` | List payment records |
+| GET | `/api/admin/payments/:id` | Get payment details |
+| GET | `/api/admin/orphaned-payments` | Get unlinked payments with suggested matches |
+| POST | `/api/admin/link-payment` | Link payment to user |
+| GET | `/api/admin/alerts` | List admin alerts |
+| POST | `/api/admin/alerts/:id/resolve` | Resolve an alert |
+| GET | `/api/admin/logs` | View system logs |
+
+### Security Features
+
+- **Separate Admin JWT:** Uses `ADMIN_JWT_SECRET` (different from user `JWT_SECRET`)
+- **Token Isolation:** User tokens rejected at admin endpoints
+- **Rate Limiting:** 5/min for login, 60/hour for other endpoints
+- **Input Validation:** All parameters validated
+- **Audit Logging:** All admin actions logged to system_logs
+
+### Testing
+
+- **Admin Unit Tests:** 49 tests passing
+- **Admin Integration Tests:** 61 tests passing
+- **Total Admin Tests:** 125 tests
+
+See [Phase 5 Completion Report](docs/PHASE_5_COMPLETION_REPORT.md) for complete details.
+
+---
 
 ## License
 MIT

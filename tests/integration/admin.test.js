@@ -1353,4 +1353,375 @@ describe('Admin Authentication API - Integration Tests', () => {
       expect(res.body.message).toBe('Payment linked and user activated successfully');
     });
   });
+
+  // ============================================================================
+  // SUITE: GET /api/admin/alerts (Alert Management - List Alerts)
+  // ============================================================================
+  describe('GET /api/admin/alerts', () => {
+    const mockAlertsData = [
+      {
+        alert_id: 'alert-uuid-1',
+        alert_type: 'orphaned_payment',
+        severity: 'warning',
+        title: 'Orphaned Payment Detected',
+        description: 'Payment ID used by multiple users',
+        metadata: { payment_id: 'PS_123' },
+        status: 'unresolved',
+        resolved_by: null,
+        resolved_at: null,
+        created_at: '2026-02-15T10:00:00Z'
+      }
+    ];
+
+    it('should return 401 without token', async () => {
+      const res = await request(app)
+        .get('/api/admin/alerts')
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(401);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should return 403 with user token', async () => {
+      const jwt = require('jsonwebtoken');
+      const userToken = jwt.sign(
+        { user_id: 'user-123', email: 'user@test.com', role: 'user' },
+        process.env.JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+
+      const res = await request(app)
+        .get('/api/admin/alerts')
+        .set('Authorization', `Bearer ${userToken}`)
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(403);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should return 200 with valid admin token, alerts array and pagination', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const rangeMock = jest.fn().mockResolvedValue({ data: mockAlertsData, error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+      const eqMock = jest.fn().mockReturnValue({ order: orderMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return {
+              eq: jest.fn().mockResolvedValue({ count: 1, error: null })
+            };
+          }
+          return { eq: eqMock };
+        })
+      }));
+
+      const res = await request(app)
+        .get('/api/admin/alerts')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.alerts).toBeDefined();
+      expect(Array.isArray(res.body.alerts)).toBe(true);
+      expect(res.body.pagination).toBeDefined();
+    });
+
+    it('should default to unresolved alerts', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const rangeMock = jest.fn().mockResolvedValue({ data: mockAlertsData, error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+      const eqMock = jest.fn().mockReturnValue({ order: orderMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return {
+              eq: jest.fn().mockResolvedValue({ count: 1, error: null })
+            };
+          }
+          return { eq: eqMock };
+        })
+      }));
+
+      const res = await request(app)
+        .get('/api/admin/alerts')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(200);
+      expect(eqMock).toHaveBeenCalledWith('status', 'unresolved');
+    });
+  });
+
+  // ============================================================================
+  // SUITE: POST /api/admin/alerts/:id/resolve (Alert Management - Resolve Alert)
+  // ============================================================================
+  describe('POST /api/admin/alerts/:id/resolve', () => {
+    const mockAlertId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+    const mockAlertData = {
+      alert_id: mockAlertId,
+      alert_type: 'orphaned_payment',
+      severity: 'warning',
+      title: 'Orphaned Payment',
+      status: 'unresolved'
+    };
+
+    it('should return 401 without token', async () => {
+      const res = await request(app)
+        .post(`/api/admin/alerts/${mockAlertId}/resolve`)
+        .send({ action: 'Linked payment' })
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(401);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should return 400 if id is not a valid UUID', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const res = await request(app)
+        .post('/api/admin/alerts/invalid-uuid/resolve')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp())
+        .send({ action: 'Test action' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.details).toBeDefined();
+    });
+
+    it('should return 400 if action is missing', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const res = await request(app)
+        .post(`/api/admin/alerts/${mockAlertId}/resolve`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp())
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.details).toBeDefined();
+    });
+
+    it('should return 404 if alert not found', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'admin_alerts') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: null, error: null })
+              })
+            })
+          };
+        }
+        return {};
+      });
+
+      const res = await request(app)
+        .post(`/api/admin/alerts/${mockAlertId}/resolve`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp())
+        .send({ action: 'Test action' });
+
+      expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toBe('Alert not found');
+    });
+
+    it('should return 400 if alert already resolved', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const resolvedAlert = { ...mockAlertData, status: 'resolved' };
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'admin_alerts') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: resolvedAlert, error: null })
+              })
+            })
+          };
+        }
+        return {};
+      });
+
+      const res = await request(app)
+        .post(`/api/admin/alerts/${mockAlertId}/resolve`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp())
+        .send({ action: 'Test action' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toBe('Alert is already resolved');
+    });
+
+    it('should return 200 and resolve alert successfully', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const updateMock = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null })
+      });
+
+      const insertMock = jest.fn().mockResolvedValue({ error: null });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'admin_alerts') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: mockAlertData, error: null })
+              })
+            }),
+            update: updateMock
+          };
+        }
+        if (table === 'system_logs') {
+          return { insert: insertMock };
+        }
+        return {};
+      });
+
+      const res = await request(app)
+        .post(`/api/admin/alerts/${mockAlertId}/resolve`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp())
+        .send({ action: 'Linked payment manually', notes: 'Test notes' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.message).toBe('Alert resolved successfully');
+    });
+  });
+
+  // ============================================================================
+  // SUITE: GET /api/admin/logs (System Logs)
+  // ============================================================================
+  describe('GET /api/admin/logs', () => {
+    const mockLogsData = [
+      {
+        id: 'log-uuid-1',
+        log_level: 'info',
+        service: 'admin',
+        action: 'admin_login',
+        message: 'Admin login: admin@example.com',
+        user_id: null,
+        admin_id: 'admin-uuid-1',
+        ip_address: '192.168.1.1',
+        created_at: '2026-02-15T10:00:00Z'
+      }
+    ];
+
+    it('should return 401 without token', async () => {
+      const res = await request(app)
+        .get('/api/admin/logs')
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(401);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should return 400 if date_from is invalid ISO date', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const res = await request(app)
+        .get('/api/admin/logs?date_from=invalid-date')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.details).toBeDefined();
+    });
+
+    it('should return 400 if user_id is not a valid UUID', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const res = await request(app)
+        .get('/api/admin/logs?user_id=invalid-uuid')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.details).toBeDefined();
+    });
+
+    it('should return 200 with valid admin token, logs array and pagination', async () => {
+      const adminToken = generateAdminToken({
+        admin_id: TEST_ADMIN_ID,
+        email: TEST_ADMIN_EMAIL,
+        role: 'admin'
+      });
+
+      const rangeMock = jest.fn().mockResolvedValue({ data: mockLogsData, error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return Promise.resolve({ count: 1, error: null });
+          }
+          return { order: orderMock };
+        })
+      }));
+
+      const res = await request(app)
+        .get('/api/admin/logs')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', getUniqueIp());
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.logs).toBeDefined();
+      expect(Array.isArray(res.body.logs)).toBe(true);
+      expect(res.body.pagination).toBeDefined();
+      expect(res.body.pagination.current_page).toBeDefined();
+      expect(res.body.pagination.total_logs).toBeDefined();
+    });
+  });
 });
