@@ -573,4 +573,553 @@ describe('adminService - User Management', () => {
       }));
     });
   });
+
+  // ============================================================================
+  // getPayments Tests
+  // ============================================================================
+  describe('getPayments', () => {
+    const mockPaymentsData = [
+      {
+        id: 'user-uuid-1',
+        email: 'user1@example.com',
+        full_name: 'User One',
+        payment_status: 'paid',
+        payment_id: 'PS_123',
+        activated: true,
+        activated_at: '2026-02-15T10:00:00Z',
+        signup_date: '2026-02-14T08:00:00Z',
+        created_at: '2026-02-14T08:00:00Z'
+      },
+      {
+        id: 'user-uuid-2',
+        email: 'user2@example.com',
+        full_name: 'User Two',
+        payment_status: 'pending',
+        payment_id: null,
+        activated: false,
+        activated_at: null,
+        signup_date: '2026-02-15T09:00:00Z',
+        created_at: '2026-02-15T09:00:00Z'
+      }
+    ];
+
+    it('should return paginated payments with correct field mapping (id → user_id, full_name → name)', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: mockPaymentsData, error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return Promise.resolve({ count: 2, error: null });
+          }
+          return { order: orderMock };
+        })
+      }));
+
+      const result = await adminService.getPayments({});
+
+      expect(result.payments).toHaveLength(2);
+      expect(result.payments[0].user_id).toBe('user-uuid-1');
+      expect(result.payments[0].name).toBe('User One');
+      expect(result.payments[0].id).toBeUndefined();
+      expect(result.payments[0].full_name).toBeUndefined();
+    });
+
+    it('should apply payment_status filter', async () => {
+      const eqMock = jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          range: jest.fn().mockResolvedValue({ data: [mockPaymentsData[0]], error: null })
+        })
+      });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return {
+              eq: jest.fn().mockResolvedValue({ count: 1, error: null })
+            };
+          }
+          return { eq: eqMock };
+        })
+      }));
+
+      const result = await adminService.getPayments({ payment_status: 'paid' });
+
+      expect(eqMock).toHaveBeenCalledWith('payment_status', 'paid');
+    });
+
+    it('should return correct pagination object', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: mockPaymentsData, error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+
+      let selectCallCount = 0;
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          selectCallCount++;
+          if (selectCallCount === 2 || (options && options.count === 'exact')) {
+            return Promise.resolve({ count: 100, error: null });
+          }
+          return { order: orderMock };
+        })
+      }));
+
+      const result = await adminService.getPayments({ page: 2, limit: 25 });
+
+      expect(result.pagination.current_page).toBe(2);
+      expect(result.pagination.per_page).toBe(25);
+      expect(result.pagination.total_payments).toBe(100);
+      expect(result.pagination.total_pages).toBe(4);
+    });
+
+    it('should default to page 1, limit 50 when not provided', async () => {
+      const rangeMock = jest.fn().mockResolvedValue({ data: [], error: null });
+      const orderMock = jest.fn().mockReturnValue({ range: rangeMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockImplementation((query, options) => {
+          if (options && options.count === 'exact') {
+            return Promise.resolve({ count: 0, error: null });
+          }
+          return { order: orderMock };
+        })
+      }));
+
+      const result = await adminService.getPayments({});
+
+      expect(result.pagination.current_page).toBe(1);
+      expect(result.pagination.per_page).toBe(50);
+    });
+  });
+
+  // ============================================================================
+  // getPaymentDetail Tests
+  // ============================================================================
+  describe('getPaymentDetail', () => {
+    const mockUserId = 'user-uuid-123';
+    const mockUserData = {
+      id: mockUserId,
+      full_name: 'Test User',
+      email: 'test@example.com',
+      payment_status: 'paid',
+      payment_id: 'PS_123',
+      payment_verified_at: '2026-02-15T12:00:00Z',
+      activated: true,
+      activated_at: '2026-02-15T10:00:00Z',
+      signup_date: '2026-02-14T08:00:00Z',
+      created_at: '2026-02-14T08:00:00Z',
+      is_active: true
+    };
+
+    it('should return payment detail with correct field mapping', async () => {
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({ data: mockUserData, error: null })
+          })
+        })
+      }));
+
+      const result = await adminService.getPaymentDetail(mockUserId);
+
+      expect(result.user_id).toBe(mockUserId);
+      expect(result.name).toBe('Test User');
+      expect(result.email).toBe('test@example.com');
+      expect(result.payment_status).toBe('paid');
+      expect(result.id).toBeUndefined();
+      expect(result.full_name).toBeUndefined();
+    });
+
+    it('should return null for missing optional fields (payment_id, activated_at, payment_verified_at)', async () => {
+      const userWithNulls = {
+        ...mockUserData,
+        payment_id: null,
+        activated_at: null,
+        payment_verified_at: null
+      };
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({ data: userWithNulls, error: null })
+          })
+        })
+      }));
+
+      const result = await adminService.getPaymentDetail(mockUserId);
+
+      expect(result.payment_id).toBeNull();
+      expect(result.activated_at).toBeNull();
+      expect(result.payment_verified_at).toBeNull();
+    });
+
+    it('should throw USER_NOT_FOUND when user does not exist', async () => {
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({ data: null, error: null })
+          })
+        })
+      }));
+
+      await expect(adminService.getPaymentDetail('non-existent-id')).rejects.toMatchObject({
+        code: 'USER_NOT_FOUND'
+      });
+    });
+  });
+
+  // ============================================================================
+  // getOrphanedPayments Tests
+  // ============================================================================
+  describe('getOrphanedPayments', () => {
+    const mockOrphanedUser = {
+      id: 'orphan-uuid-1',
+      email: 'orphan@example.com',
+      full_name: 'Orphan User',
+      payment_id: 'PS_ORPHAN_123',
+      payment_status: 'pending',
+      created_at: '2026-02-15T09:00:00Z'
+    };
+
+    const mockSuggestedMatch = {
+      id: 'match-uuid-1',
+      email: 'paid@example.com',
+      full_name: 'Paid User',
+      payment_status: 'paid'
+    };
+
+    it('should return orphaned payments with suggested_matches array', async () => {
+      const neqMock = jest.fn().mockReturnValue({
+        order: jest.fn().mockResolvedValue({ data: [mockOrphanedUser], error: null })
+      });
+      const eqMock = jest.fn().mockReturnValue({ neq: neqMock });
+      const notMock = jest.fn().mockReturnValue({ eq: eqMock });
+
+      // Mock for suggested matches query
+      const limitMock = jest.fn().mockResolvedValue({ data: [mockSuggestedMatch], error: null });
+      const matchEqMock = jest.fn().mockReturnValue({ limit: limitMock });
+      const matchNeqMock = jest.fn().mockReturnValue({ eq: matchEqMock });
+      const matchIlikeMock = jest.fn().mockReturnValue({ neq: matchNeqMock });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockImplementation((query) => {
+              // Check if this is the orphaned payments query or the suggested matches query
+              if (query.includes('payment_id')) {
+                return { not: notMock };
+              }
+              // Suggested matches query
+              return { ilike: matchIlikeMock };
+            })
+          };
+        }
+        return {};
+      });
+
+      const result = await adminService.getOrphanedPayments();
+
+      expect(result.orphaned_payments).toHaveLength(1);
+      expect(result.orphaned_payments[0].user_id).toBe('orphan-uuid-1');
+      expect(result.orphaned_payments[0].suggested_matches).toBeDefined();
+      expect(Array.isArray(result.orphaned_payments[0].suggested_matches)).toBe(true);
+    });
+
+    it('should return empty array when no orphaned payments found', async () => {
+      const neqMock = jest.fn().mockReturnValue({
+        order: jest.fn().mockResolvedValue({ data: [], error: null })
+      });
+      const eqMock = jest.fn().mockReturnValue({ neq: neqMock });
+      const notMock = jest.fn().mockReturnValue({ eq: eqMock });
+
+      supabase.from.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({ not: notMock })
+      }));
+
+      const result = await adminService.getOrphanedPayments();
+
+      expect(result.orphaned_payments).toHaveLength(0);
+      expect(result.total).toBe(0);
+    });
+
+    it('should include suggested matches from same email domain', async () => {
+      const neqMock = jest.fn().mockReturnValue({
+        order: jest.fn().mockResolvedValue({ data: [mockOrphanedUser], error: null })
+      });
+      const eqMock = jest.fn().mockReturnValue({ neq: neqMock });
+      const notMock = jest.fn().mockReturnValue({ eq: eqMock });
+
+      const limitMock = jest.fn().mockResolvedValue({ data: [mockSuggestedMatch], error: null });
+      const matchEqMock = jest.fn().mockReturnValue({ limit: limitMock });
+      const matchNeqMock = jest.fn().mockReturnValue({ eq: matchEqMock });
+      const matchIlikeMock = jest.fn().mockReturnValue({ neq: matchNeqMock });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockImplementation((query) => {
+              if (query.includes('payment_id')) {
+                return { not: notMock };
+              }
+              return { ilike: matchIlikeMock };
+            })
+          };
+        }
+        return {};
+      });
+
+      const result = await adminService.getOrphanedPayments();
+
+      expect(result.orphaned_payments[0].suggested_matches).toHaveLength(1);
+      expect(result.orphaned_payments[0].suggested_matches[0].user_id).toBe('match-uuid-1');
+      expect(result.orphaned_payments[0].suggested_matches[0].email).toBe('paid@example.com');
+    });
+  });
+
+  // ============================================================================
+  // linkPayment Tests
+  // ============================================================================
+  describe('linkPayment', () => {
+    const mockUserId = 'user-uuid-123';
+    const mockAdminId = 'admin-uuid-456';
+    const mockPaymentId = 'PS_LINK_123';
+    const mockUserData = {
+      id: mockUserId,
+      email: 'test@example.com',
+      full_name: 'Test User',
+      payment_status: 'pending',
+      activated: false
+    };
+
+    it('should update user payment_id, payment_status, activated, activated_at', async () => {
+      const updateMock = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null })
+      });
+
+      const insertMock = jest.fn().mockResolvedValue({ error: null });
+
+      // Mock for admin_alerts update (graceful failure is OK)
+      const alertUpdateMock = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          filter: jest.fn().mockResolvedValue({ error: null })
+        })
+      });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockImplementation((query) => {
+              // Check if this is the target user query or the payment_id check
+              if (query.includes('payment_status')) {
+                return {
+                  eq: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({ data: mockUserData, error: null })
+                  })
+                };
+              }
+              // payment_id check query
+              return {
+                eq: jest.fn().mockReturnValue({
+                  neq: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } })
+                  })
+                })
+              };
+            }),
+            update: updateMock
+          };
+        }
+        if (table === 'admin_alerts') {
+          return { update: alertUpdateMock };
+        }
+        if (table === 'system_logs') {
+          return { insert: insertMock };
+        }
+        return {};
+      });
+
+      const result = await adminService.linkPayment(
+        { user_id: mockUserId, payment_id: mockPaymentId },
+        mockAdminId
+      );
+
+      expect(result.message).toBe('Payment linked and user activated successfully');
+      expect(updateMock).toHaveBeenCalled();
+      const updateCall = updateMock.mock.calls[0][0];
+      expect(updateCall.payment_id).toBe(mockPaymentId);
+      expect(updateCall.payment_status).toBe('paid');
+      expect(updateCall.activated).toBe(true);
+      expect(updateCall.activated_at).toBeDefined();
+    });
+
+    it('should log to system_logs with action link_payment', async () => {
+      const updateMock = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null })
+      });
+
+      const insertMock = jest.fn().mockResolvedValue({ error: null });
+
+      const alertUpdateMock = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          filter: jest.fn().mockResolvedValue({ error: null })
+        })
+      });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockImplementation((query) => {
+              if (query.includes('payment_status')) {
+                return {
+                  eq: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({ data: mockUserData, error: null })
+                  })
+                };
+              }
+              return {
+                eq: jest.fn().mockReturnValue({
+                  neq: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } })
+                  })
+                })
+              };
+            }),
+            update: updateMock
+          };
+        }
+        if (table === 'admin_alerts') {
+          return { update: alertUpdateMock };
+        }
+        if (table === 'system_logs') {
+          return { insert: insertMock };
+        }
+        return {};
+      });
+
+      await adminService.linkPayment(
+        { user_id: mockUserId, payment_id: mockPaymentId, admin_notes: 'Test note' },
+        mockAdminId
+      );
+
+      expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({
+        log_level: 'info',
+        service: 'admin',
+        action: 'link_payment',
+        admin_id: mockAdminId,
+        user_id: mockUserId
+      }));
+    });
+
+    it('should throw USER_NOT_FOUND when user does not exist', async () => {
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: null, error: null })
+              })
+            })
+          };
+        }
+        return {};
+      });
+
+      await expect(adminService.linkPayment(
+        { user_id: 'non-existent-id', payment_id: mockPaymentId },
+        mockAdminId
+      )).rejects.toMatchObject({
+        code: 'USER_NOT_FOUND'
+      });
+    });
+
+    it('should throw PAYMENT_ID_IN_USE when payment_id already assigned to another user', async () => {
+      const existingUser = {
+        id: 'other-user-uuid',
+        email: 'other@example.com'
+      };
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockImplementation((query) => {
+              if (query.includes('payment_status')) {
+                return {
+                  eq: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({ data: mockUserData, error: null })
+                  })
+                };
+              }
+              // payment_id check returns existing user
+              return {
+                eq: jest.fn().mockReturnValue({
+                  neq: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({ data: existingUser, error: null })
+                  })
+                })
+              };
+            })
+          };
+        }
+        return {};
+      });
+
+      await expect(adminService.linkPayment(
+        { user_id: mockUserId, payment_id: mockPaymentId },
+        mockAdminId
+      )).rejects.toMatchObject({
+        code: 'PAYMENT_ID_IN_USE'
+      });
+    });
+
+    it('should still succeed if resolving alerts fails (graceful degradation)', async () => {
+      const updateMock = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null })
+      });
+
+      const insertMock = jest.fn().mockResolvedValue({ error: null });
+
+      // Mock alert update to throw an error
+      const alertUpdateMock = jest.fn().mockImplementation(() => {
+        throw new Error('Alert update failed');
+      });
+
+      supabase.from.mockImplementation((table) => {
+        if (table === 'users') {
+          return {
+            select: jest.fn().mockImplementation((query) => {
+              if (query.includes('payment_status')) {
+                return {
+                  eq: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({ data: mockUserData, error: null })
+                  })
+                };
+              }
+              return {
+                eq: jest.fn().mockReturnValue({
+                  neq: jest.fn().mockReturnValue({
+                    single: jest.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } })
+                  })
+                })
+              };
+            }),
+            update: updateMock
+          };
+        }
+        if (table === 'admin_alerts') {
+          return { update: alertUpdateMock };
+        }
+        if (table === 'system_logs') {
+          return { insert: insertMock };
+        }
+        return {};
+      });
+
+      // Should not throw even though alert update fails
+      const result = await adminService.linkPayment(
+        { user_id: mockUserId, payment_id: mockPaymentId },
+        mockAdminId
+      );
+
+      expect(result.message).toBe('Payment linked and user activated successfully');
+    });
+  });
 });

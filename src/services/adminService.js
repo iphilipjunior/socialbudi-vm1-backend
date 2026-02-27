@@ -346,35 +346,317 @@ const activateUser = async (userId, adminId) => {
 };
 
 /**
- * Get paginated list of payments
- * @throws {Error} Not implemented yet
+ * Get paginated list of payments (users with payment data)
+ *
+ * @param {Object} filters - Filter options
+ * @param {string} [filters.payment_status] - 'pending' or 'paid'
+ * @param {number} [filters.page] - Page number, default 1
+ * @param {number} [filters.limit] - Results per page, default 50, max 100
+ * @returns {Promise<Object>} Object containing payments array and pagination info
  */
-const getPayments = async () => {
-  throw new Error('Not implemented yet');
+const getPayments = async (filters = {}) => {
+  try {
+    const page = filters.page || 1;
+    const limit = Math.min(filters.limit || 50, 100);
+    const offset = (page - 1) * limit;
+
+    // Build base query
+    let query = supabase
+      .from('users')
+      .select('id, email, full_name, payment_status, payment_id, activated, activated_at, signup_date, created_at');
+
+    // Apply payment_status filter
+    if (filters.payment_status) {
+      query = query.eq('payment_status', filters.payment_status);
+    }
+
+    // Apply ordering and pagination
+    query = query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    const { data: users, error } = await query;
+
+    if (error) {
+      logger.error('Error fetching payments', { error: error.message });
+      throw error;
+    }
+
+    // Build count query with same filter
+    let countQuery = supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true });
+
+    if (filters.payment_status) {
+      countQuery = countQuery.eq('payment_status', filters.payment_status);
+    }
+
+    const { count: totalCount, error: countError } = await countQuery;
+
+    if (countError) {
+      logger.error('Error counting payments', { error: countError.message });
+      throw countError;
+    }
+
+    // Map results to response format
+    const mappedPayments = (users || []).map(user => ({
+      user_id: user.id,
+      name: user.full_name,
+      email: user.email,
+      payment_status: user.payment_status,
+      payment_id: user.payment_id || null,
+      activated: user.activated,
+      activated_at: user.activated_at || null,
+      signup_date: user.signup_date,
+      created_at: user.created_at
+    }));
+
+    return {
+      payments: mappedPayments,
+      pagination: {
+        current_page: page,
+        total_pages: Math.ceil((totalCount || 0) / limit),
+        total_payments: totalCount || 0,
+        per_page: limit
+      }
+    };
+  } catch (err) {
+    logger.error('getPayments error', { error: err.message });
+    throw err;
+  }
 };
 
 /**
  * Get payment detail for a specific user
- * @throws {Error} Not implemented yet
+ *
+ * @param {string} userId - users.id (UUID)
+ * @returns {Promise<Object>} Object containing payment detail
+ * @throws {Object} Error with code 'USER_NOT_FOUND' if user doesn't exist
  */
-const getPaymentDetail = async () => {
-  throw new Error('Not implemented yet');
+const getPaymentDetail = async (userId) => {
+  try {
+    // Query user
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error || !user) {
+      const err = new Error('User not found');
+      err.code = 'USER_NOT_FOUND';
+      throw err;
+    }
+
+    // Map response
+    return {
+      user_id: user.id,
+      name: user.full_name,
+      email: user.email,
+      payment_status: user.payment_status,
+      payment_id: user.payment_id || null,
+      payment_verified_at: user.payment_verified_at || null,
+      activated: user.activated,
+      activated_at: user.activated_at || null,
+      signup_date: user.signup_date,
+      created_at: user.created_at,
+      is_active: user.is_active
+    };
+  } catch (err) {
+    if (err.code === 'USER_NOT_FOUND') {
+      throw err;
+    }
+    logger.error('getPaymentDetail error', { userId, error: err.message });
+    throw err;
+  }
 };
 
 /**
  * Get orphaned payments with suggested matches
- * @throws {Error} Not implemented yet
+ *
+ * Orphaned payments are users where:
+ * - payment_id IS NOT NULL
+ * - activated = false
+ * - payment_status != 'paid'
+ *
+ * @returns {Promise<Object>} Object containing orphaned payments with suggested matches
  */
 const getOrphanedPayments = async () => {
-  throw new Error('Not implemented yet');
+  try {
+    // Query orphaned payments
+    const { data: orphanedUsers, error } = await supabase
+      .from('users')
+      .select('id, email, full_name, payment_id, payment_status, created_at')
+      .not('payment_id', 'is', null)
+      .eq('activated', false)
+      .neq('payment_status', 'paid')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      logger.error('Error fetching orphaned payments', { error: error.message });
+      throw error;
+    }
+
+    // For each orphaned user, find suggested matches from same email domain
+    const mappedResults = [];
+
+    for (const user of (orphanedUsers || [])) {
+      const suggestedMatches = [];
+
+      // Extract domain from email
+      const emailParts = user.email.split('@');
+      if (emailParts.length === 2) {
+        const domain = emailParts[1];
+
+        // Find paid users with same email domain
+        const { data: matches, error: matchError } = await supabase
+          .from('users')
+          .select('id, email, full_name, payment_status')
+          .ilike('email', `%@${domain}`)
+          .neq('id', user.id)
+          .eq('payment_status', 'paid')
+          .limit(3);
+
+        if (!matchError && matches) {
+          for (const match of matches) {
+            suggestedMatches.push({
+              user_id: match.id,
+              name: match.full_name,
+              email: match.email,
+              payment_status: match.payment_status
+            });
+          }
+        }
+      }
+
+      mappedResults.push({
+        user_id: user.id,
+        name: user.full_name,
+        email: user.email,
+        payment_id: user.payment_id,
+        payment_status: user.payment_status,
+        created_at: user.created_at,
+        suggested_matches: suggestedMatches
+      });
+    }
+
+    return {
+      orphaned_payments: mappedResults,
+      total: mappedResults.length
+    };
+  } catch (err) {
+    logger.error('getOrphanedPayments error', { error: err.message });
+    throw err;
+  }
 };
 
 /**
  * Link a payment to a user and activate their account
- * @throws {Error} Not implemented yet
+ *
+ * @param {Object} data - Payment link data
+ * @param {string} data.user_id - Target users.id (UUID)
+ * @param {string} data.payment_id - Payment ID to assign
+ * @param {string} [data.admin_notes] - Optional notes for audit log
+ * @param {string} adminId - admin_users.admin_id (UUID) for logging
+ * @returns {Promise<Object>} Success message
+ * @throws {Object} Error with code 'USER_NOT_FOUND' or 'PAYMENT_ID_IN_USE'
  */
-const linkPayment = async () => {
-  throw new Error('Not implemented yet');
+const linkPayment = async (data, adminId) => {
+  try {
+    // Query target user
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, email, full_name, payment_status, activated')
+      .eq('id', data.user_id)
+      .single();
+
+    if (error || !user) {
+      const err = new Error('User not found');
+      err.code = 'USER_NOT_FOUND';
+      throw err;
+    }
+
+    // Check if payment_id is already in use by another user
+    const { data: existingUser, error: checkError } = await supabase
+      .from('users')
+      .select('id, email')
+      .eq('payment_id', data.payment_id)
+      .neq('id', data.user_id)
+      .single();
+
+    if (!checkError && existingUser) {
+      const err = new Error(`Payment ID is already linked to user: ${existingUser.email}`);
+      err.code = 'PAYMENT_ID_IN_USE';
+      throw err;
+    }
+
+    // Update target user
+    const activatedAt = new Date().toISOString();
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        payment_id: data.payment_id,
+        payment_status: 'paid',
+        activated: true,
+        activated_at: activatedAt,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', data.user_id);
+
+    if (updateError) {
+      logger.error('Error linking payment', { userId: data.user_id, error: updateError.message });
+      throw updateError;
+    }
+
+    // Resolve any open admin_alerts related to this payment_id
+    // Note: Use correct Phase 5 column names: status, resolved_by, resolved_at, metadata
+    try {
+      await supabase
+        .from('admin_alerts')
+        .update({
+          status: 'resolved',
+          resolved_by: adminId,
+          resolved_at: new Date().toISOString()
+        })
+        .eq('status', 'unresolved')
+        .filter('metadata->>payment_id', 'eq', data.payment_id);
+    } catch (alertError) {
+      // Do NOT throw - log and continue
+      logger.warn('Failed to resolve related alerts (non-critical)', {
+        payment_id: data.payment_id,
+        error: alertError.message
+      });
+    }
+
+    // Log to system_logs
+    await supabase.from('system_logs').insert({
+      log_level: 'info',
+      service: 'admin',
+      action: 'link_payment',
+      message: `Admin linked payment ${data.payment_id} to user ${user.email}`,
+      admin_id: adminId,
+      user_id: data.user_id,
+      request_data: {
+        payment_id: data.payment_id,
+        linked_by: adminId,
+        admin_notes: data.admin_notes || null
+      }
+    });
+
+    logger.info('Payment linked successfully', {
+      userId: data.user_id,
+      paymentId: data.payment_id,
+      adminId
+    });
+
+    return { message: 'Payment linked and user activated successfully' };
+  } catch (err) {
+    if (err.code === 'USER_NOT_FOUND' || err.code === 'PAYMENT_ID_IN_USE') {
+      throw err;
+    }
+    logger.error('linkPayment error', { userId: data.user_id, adminId, error: err.message });
+    throw err;
+  }
 };
 
 /**
