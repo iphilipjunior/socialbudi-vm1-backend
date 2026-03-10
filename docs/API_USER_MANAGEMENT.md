@@ -352,7 +352,7 @@ curl -X PUT https://contentscrapingserver.site/api/user/change-password \
 
 ### 4. POST /api/user/cookie
 
-Store LinkedIn authentication cookie for scraping services.
+Store LinkedIn authentication cookies for scraping services.
 
 **Authentication:** Required
 
@@ -363,7 +363,9 @@ Store LinkedIn authentication cookie for scraping services.
 ```json
 {
   "linkedin_cookie": "AQEDARabcdef123456789012345678901234567890123456789012345",
-  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "jsessionid": "ajax:1234567890123456789",
+  "bcookie": "v=2&abcdef12-3456-7890-abcd-ef1234567890"
 }
 ```
 
@@ -373,6 +375,10 @@ Store LinkedIn authentication cookie for scraping services.
 |-------|----------|-------------|
 | linkedin_cookie | Yes | LinkedIn li_at cookie value (min 50 chars) |
 | user_agent | Yes | Browser user agent string (must contain "Mozilla") |
+| jsessionid | No | LinkedIn JSESSIONID cookie (min 10 chars) |
+| bcookie | No | LinkedIn bcookie value (min 10 chars) |
+
+**Note:** The `jsessionid` and `bcookie` fields are optional for backward compatibility. When provided, they are stored in `linkedin_jsessionid` and `linkedin_bcookie` database columns respectively.
 
 **Request:**
 
@@ -382,7 +388,9 @@ curl -X POST https://contentscrapingserver.site/api/user/cookie \
   -H "Content-Type: application/json" \
   -d '{
     "linkedin_cookie": "AQEDARabcdef123456789012345678901234567890123456789012345",
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "jsessionid": "ajax:1234567890123456789",
+    "bcookie": "v=2&abcdef12-3456-7890-abcd-ef1234567890"
   }'
 ```
 
@@ -423,6 +431,21 @@ curl -X POST https://contentscrapingserver.site/api/user/cookie \
     {
       "field": "user_agent",
       "message": "User agent must contain Mozilla"
+    }
+  ]
+}
+```
+
+**400 Bad Request (Invalid optional cookies):**
+
+```json
+{
+  "success": false,
+  "error": "Validation failed",
+  "details": [
+    {
+      "field": "jsessionid",
+      "message": "JSESSIONID must be at least 10 characters"
     }
   ]
 }
@@ -576,13 +599,15 @@ curl -X PUT https://contentscrapingserver.site/api/user/change-password \
     "confirm_password":"NewPassword456"
   }'
 
-# 5. Store LinkedIn cookie
+# 5. Store LinkedIn cookies
 curl -X POST https://contentscrapingserver.site/api/user/cookie \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "linkedin_cookie":"AQEDARabcdef123456789012345678901234567890123456789012345",
-    "user_agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    "user_agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "jsessionid":"ajax:1234567890123456789",
+    "bcookie":"v=2&abcdef12-3456-7890-abcd-ef1234567890"
   }'
 
 # 6. Get API keys
@@ -634,12 +659,16 @@ const changePassword = async (token, currentPassword, newPassword) => {
   return response.data;
 };
 
-// Store LinkedIn cookie
-const storeCookie = async (token, cookie, userAgent) => {
-  const response = await axios.post(`${BASE_URL}/user/cookie`, {
+// Store LinkedIn cookies
+const storeCookie = async (token, cookie, userAgent, jsessionid = null, bcookie = null) => {
+  const body = {
     linkedin_cookie: cookie,
     user_agent: userAgent
-  }, {
+  };
+  if (jsessionid) body.jsessionid = jsessionid;
+  if (bcookie) body.bcookie = bcookie;
+
+  const response = await axios.post(`${BASE_URL}/user/cookie`, body, {
     headers: { Authorization: `Bearer ${token}` }
   });
   return response.data;
@@ -689,6 +718,6 @@ const getApiKeys = async (token) => {
 
 ---
 
-**Last Updated:** February 20, 2026
-**Version:** 1.0
+**Last Updated:** March 10, 2026
+**Version:** 1.1
 **Status:** Production

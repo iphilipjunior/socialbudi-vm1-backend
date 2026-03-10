@@ -217,6 +217,8 @@ const validatePasswordChange = [
  * Validates:
  * - linkedin_cookie: required, string, minimum 50 characters
  * - user_agent: required, string, must contain "Mozilla"
+ * - jsessionid: optional, string, minimum 10 characters
+ * - bcookie: optional, string, minimum 10 characters
  */
 const validateCookieStorage = [
   body('linkedin_cookie')
@@ -234,6 +236,20 @@ const validateCookieStorage = [
     .withMessage('User agent must be a string')
     .contains('Mozilla')
     .withMessage('Invalid user agent format'),
+
+  body('jsessionid')
+    .optional()
+    .isString()
+    .withMessage('JSESSIONID must be a string')
+    .isLength({ min: 10 })
+    .withMessage('JSESSIONID must be at least 10 characters'),
+
+  body('bcookie')
+    .optional()
+    .isString()
+    .withMessage('bcookie must be a string')
+    .isLength({ min: 10 })
+    .withMessage('bcookie must be at least 10 characters'),
 
   handleValidationErrors
 ];

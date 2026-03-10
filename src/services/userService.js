@@ -251,37 +251,50 @@ const changeUserPassword = async (userId, currentPassword, newPassword) => {
 /**
  * Store LinkedIn cookie
  *
- * Stores LinkedIn authentication cookie and user agent for scraping.
+ * Stores LinkedIn authentication cookies and user agent for scraping.
  *
  * @param {string} userId - User's UUID
  * @param {string} linkedinCookie - LinkedIn li_at cookie value
  * @param {string} userAgent - Browser user agent string
+ * @param {string|null} jsessionid - LinkedIn JSESSIONID cookie (optional)
+ * @param {string|null} bcookie - LinkedIn bcookie value (optional)
  * @returns {Promise<Object>} Success with cookie_updated_at timestamp
  * @throws {Error} If database error
  *
- * SECURITY: Cookie stored in plain text (required for scraping).
- * DO NOT log cookie value.
+ * SECURITY: Cookies stored in plain text (required for scraping).
+ * DO NOT log cookie values.
  *
  * @example
- * const result = await storeLinkedInCookie('uuid', 'AQEDARabc...', 'Mozilla/5.0...');
+ * const result = await storeLinkedInCookie('uuid', 'AQEDARabc...', 'Mozilla/5.0...', 'ajax:123...', 'v=2&abc...');
  * // Returns: { success: true, cookie_updated_at: '2026-02-16T10:30:00Z' }
  */
-const storeLinkedInCookie = async (userId, linkedinCookie, userAgent) => {
+const storeLinkedInCookie = async (userId, linkedinCookie, userAgent, jsessionid = null, bcookie = null) => {
   try {
-    // DO NOT log cookie value
+    // DO NOT log cookie values
     logger.info('LinkedIn cookie storage requested', { userId });
 
     const cookieUpdatedAt = new Date().toISOString();
 
-    // Update users table with cookie and user agent
+    // Build update object with required fields
+    const updateData = {
+      linkedin_cookie: linkedinCookie,
+      linkedin_user_agent: userAgent,
+      cookie_updated_at: cookieUpdatedAt,
+      updated_at: cookieUpdatedAt
+    };
+
+    // Add optional cookies if provided
+    if (jsessionid !== null) {
+      updateData.linkedin_jsessionid = jsessionid;
+    }
+    if (bcookie !== null) {
+      updateData.linkedin_bcookie = bcookie;
+    }
+
+    // Update users table with cookies and user agent
     const { error } = await supabase
       .from('users')
-      .update({
-        linkedin_cookie: linkedinCookie,
-        linkedin_user_agent: userAgent,
-        cookie_updated_at: cookieUpdatedAt,
-        updated_at: cookieUpdatedAt
-      })
+      .update(updateData)
       .eq('id', userId);
 
     if (error) {
@@ -289,7 +302,7 @@ const storeLinkedInCookie = async (userId, linkedinCookie, userAgent) => {
       throw new Error('Failed to store LinkedIn cookie');
     }
 
-    // Log cookie update (DO NOT log cookie value)
+    // Log cookie update (DO NOT log cookie values)
     logger.info('LinkedIn cookie updated successfully', { userId });
 
     return {

@@ -171,8 +171,8 @@ const changePassword = async (req, res) => {
 /**
  * Store LinkedIn cookie
  *
- * Stores LinkedIn authentication cookie and user agent for scraping.
- * Cookie is stored in plain text (required for scraping functionality).
+ * Stores LinkedIn authentication cookies and user agent for scraping.
+ * Cookies are stored in plain text (required for scraping functionality).
  *
  * @route POST /api/user/cookie
  * @param {Object} req - Express request object
@@ -180,16 +180,24 @@ const changePassword = async (req, res) => {
  * @param {Object} req.body - Cookie data
  * @param {string} req.body.linkedin_cookie - LinkedIn li_at cookie value
  * @param {string} req.body.user_agent - Browser user agent string
+ * @param {string} [req.body.jsessionid] - LinkedIn JSESSIONID cookie (optional)
+ * @param {string} [req.body.bcookie] - LinkedIn bcookie value (optional)
  * @param {Object} res - Express response object
  * @returns {Object} Success message with cookie_updated_at timestamp
  */
 const storeCookie = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { linkedin_cookie, user_agent } = req.body;
+    const { linkedin_cookie, user_agent, jsessionid, bcookie } = req.body;
 
-    // Call service to store cookie
-    const result = await userService.storeLinkedInCookie(userId, linkedin_cookie, user_agent);
+    // Call service to store cookies (jsessionid and bcookie are optional)
+    const result = await userService.storeLinkedInCookie(
+      userId,
+      linkedin_cookie,
+      user_agent,
+      jsessionid || null,
+      bcookie || null
+    );
 
     res.status(200).json({
       success: true,
