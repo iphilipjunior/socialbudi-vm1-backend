@@ -215,41 +215,33 @@ const validatePasswordChange = [
  * Cookie storage validation rules
  *
  * Validates:
- * - linkedin_cookie: required, string, minimum 50 characters
- * - user_agent: required, string, must contain "Mozilla"
- * - jsessionid: optional, string, minimum 10 characters
- * - bcookie: optional, string, minimum 10 characters
+ * - linkedin_cookie: required, minimum 50 characters
+ * - user_agent: required, must contain "Mozilla"
+ * - jsessionid: optional, cannot be empty string if provided
+ * - bcookie: optional, cannot be empty string if provided
  */
 const validateCookieStorage = [
+  // Required fields (existing)
   body('linkedin_cookie')
-    .exists()
-    .withMessage('LinkedIn cookie is required')
-    .isString()
-    .withMessage('LinkedIn cookie must be a string')
-    .isLength({ min: 50 })
-    .withMessage('LinkedIn cookie must be at least 50 characters'),
+    .trim()
+    .notEmpty().withMessage('LinkedIn cookie is required')
+    .isLength({ min: 50 }).withMessage('LinkedIn cookie appears invalid (too short)'),
 
   body('user_agent')
-    .exists()
-    .withMessage('User agent is required')
-    .isString()
-    .withMessage('User agent must be a string')
-    .contains('Mozilla')
-    .withMessage('Invalid user agent format'),
+    .trim()
+    .notEmpty().withMessage('User agent is required')
+    .contains('Mozilla').withMessage('Invalid user agent format'),
 
+  // Optional fields (new)
   body('jsessionid')
     .optional()
-    .isString()
-    .withMessage('JSESSIONID must be a string')
-    .isLength({ min: 10 })
-    .withMessage('JSESSIONID must be at least 10 characters'),
+    .trim()
+    .notEmpty().withMessage('JSESSIONID cannot be empty string if provided'),
 
   body('bcookie')
     .optional()
-    .isString()
-    .withMessage('bcookie must be a string')
-    .isLength({ min: 10 })
-    .withMessage('bcookie must be at least 10 characters'),
+    .trim()
+    .notEmpty().withMessage('bcookie cannot be empty string if provided'),
 
   handleValidationErrors
 ];

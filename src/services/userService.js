@@ -249,69 +249,58 @@ const changeUserPassword = async (userId, currentPassword, newPassword) => {
 };
 
 /**
- * Store LinkedIn cookie
+ * Store LinkedIn cookies in database
  *
- * Stores LinkedIn authentication cookies and user agent for scraping.
- *
- * @param {string} userId - User's UUID
- * @param {string} linkedinCookie - LinkedIn li_at cookie value
- * @param {string} userAgent - Browser user agent string
- * @param {string|null} jsessionid - LinkedIn JSESSIONID cookie (optional)
- * @param {string|null} bcookie - LinkedIn bcookie value (optional)
- * @returns {Promise<Object>} Success with cookie_updated_at timestamp
- * @throws {Error} If database error
- *
- * SECURITY: Cookies stored in plain text (required for scraping).
- * DO NOT log cookie values.
- *
- * @example
- * const result = await storeLinkedInCookie('uuid', 'AQEDARabc...', 'Mozilla/5.0...', 'ajax:123...', 'v=2&abc...');
- * // Returns: { success: true, cookie_updated_at: '2026-02-16T10:30:00Z' }
+ * @param {string} userId - User ID
+ * @param {string} linkedinCookie - LinkedIn li_at cookie (required)
+ * @param {string} userAgent - Browser user agent (required)
+ * @param {string} [jsessionid=null] - LinkedIn JSESSIONID (optional)
+ * @param {string} [bcookie=null] - LinkedIn bcookie (optional)
  */
 const storeLinkedInCookie = async (userId, linkedinCookie, userAgent, jsessionid = null, bcookie = null) => {
   try {
-    // DO NOT log cookie values
-    logger.info('LinkedIn cookie storage requested', { userId });
+    const now = new Date().toISOString();
 
-    const cookieUpdatedAt = new Date().toISOString();
-
-    // Build update object with required fields
+    // Build update object
     const updateData = {
       linkedin_cookie: linkedinCookie,
       linkedin_user_agent: userAgent,
-      cookie_updated_at: cookieUpdatedAt,
-      updated_at: cookieUpdatedAt
+      cookie_updated_at: now,
+      updated_at: now
     };
 
     // Add optional cookies if provided
-    if (jsessionid !== null) {
+    if (jsessionid) {
       updateData.linkedin_jsessionid = jsessionid;
     }
-    if (bcookie !== null) {
+    if (bcookie) {
       updateData.linkedin_bcookie = bcookie;
     }
 
-    // Update users table with cookies and user agent
     const { error } = await supabase
       .from('users')
       .update(updateData)
       .eq('id', userId);
 
-    if (error) {
-      logger.error('Database error storing LinkedIn cookie', { userId, error: error.message });
-      throw new Error('Failed to store LinkedIn cookie');
-    }
+    if (error) throw error;
 
-    // Log cookie update (DO NOT log cookie values)
-    logger.info('LinkedIn cookie updated successfully', { userId });
+    // Log with cookie count
+    const cookieCount = 1 + (jsessionid ? 1 : 0) + (bcookie ? 1 : 0);
+    logger.info('LinkedIn cookies stored successfully', {
+      user_id: userId,
+      cookie_count: cookieCount,
+      li_at_length: linkedinCookie.length,
+      has_jsessionid: !!jsessionid,
+      has_bcookie: !!bcookie
+    });
 
-    return {
-      success: true,
-      cookie_updated_at: cookieUpdatedAt
-    };
-  } catch (err) {
-    logger.error('Store LinkedIn cookie error', { userId, error: err.message });
-    throw err;
+    return { cookie_updated_at: now };
+  } catch (error) {
+    logger.error('Error storing LinkedIn cookies', {
+      user_id: userId,
+      error: error.message
+    });
+    throw error;
   }
 };
 
