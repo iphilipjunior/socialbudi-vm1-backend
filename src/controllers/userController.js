@@ -28,7 +28,7 @@ const apiKeyService = require('../services/apiKeyService');
  */
 const getProfile = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.user_id;
 
     // Call service to get user profile
     const profile = await userService.getUserById(userId);
@@ -67,7 +67,7 @@ const getProfile = async (req, res) => {
  */
 const updateProfile = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.user_id;
     const { full_name, email } = req.body;
 
     // Build updates object
@@ -129,7 +129,7 @@ const updateProfile = async (req, res) => {
  */
 const changePassword = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.user_id;
     const { current_password, new_password } = req.body;
 
     // Call service to change password
@@ -226,7 +226,7 @@ const storeCookie = async (req, res) => {
  */
 const getAPIKeys = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.user_id;
 
     // Call service to get API keys
     const result = await apiKeyService.getAPIKeys(userId);
