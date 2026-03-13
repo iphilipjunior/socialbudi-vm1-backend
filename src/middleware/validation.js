@@ -215,25 +215,33 @@ const validatePasswordChange = [
  * Cookie storage validation rules
  *
  * Validates:
- * - linkedin_cookie: required, string, minimum 50 characters
- * - user_agent: required, string, must contain "Mozilla"
+ * - linkedin_cookie: required, minimum 50 characters
+ * - user_agent: required, must contain "Mozilla"
+ * - jsessionid: optional, cannot be empty string if provided
+ * - bcookie: optional, cannot be empty string if provided
  */
 const validateCookieStorage = [
+  // Required fields (existing)
   body('linkedin_cookie')
-    .exists()
-    .withMessage('LinkedIn cookie is required')
-    .isString()
-    .withMessage('LinkedIn cookie must be a string')
-    .isLength({ min: 50 })
-    .withMessage('LinkedIn cookie must be at least 50 characters'),
+    .trim()
+    .notEmpty().withMessage('LinkedIn cookie is required')
+    .isLength({ min: 50 }).withMessage('LinkedIn cookie appears invalid (too short)'),
 
   body('user_agent')
-    .exists()
-    .withMessage('User agent is required')
-    .isString()
-    .withMessage('User agent must be a string')
-    .contains('Mozilla')
-    .withMessage('Invalid user agent format'),
+    .trim()
+    .notEmpty().withMessage('User agent is required')
+    .contains('Mozilla').withMessage('Invalid user agent format'),
+
+  // Optional fields (new)
+  body('jsessionid')
+    .optional()
+    .trim()
+    .notEmpty().withMessage('JSESSIONID cannot be empty string if provided'),
+
+  body('bcookie')
+    .optional()
+    .trim()
+    .notEmpty().withMessage('bcookie cannot be empty string if provided'),
 
   handleValidationErrors
 ];
